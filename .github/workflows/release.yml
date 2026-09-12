@@ -57,6 +57,9 @@ jobs:
             target: x86_64-unknown-linux-gnu
             bundles: appimage,deb
     runs-on: ${{ matrix.os }}
+    # The slowest honest build is well under an hour; anything past it is
+    # a hang, and the default cut-off is six.
+    timeout-minutes: 60
     env:
       # The secrets are lifted into the environment here because a step's
       # `if:` can read `env` and cannot read `secrets`.
@@ -110,6 +113,12 @@ jobs:
         run: |
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          # A keychain locks itself again after five idle minutes, and the
+          # compile between this step and the first `codesign` is longer
+          # than that. A locked keychain makes codesign put up a password
+          # dialog, which on a runner nobody answers: the first release
+          # build hung there for hours. Six hours of no locking instead.
+          security set-keychain-settings -lut 21600 build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" \
