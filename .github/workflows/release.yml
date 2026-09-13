@@ -40,22 +40,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `updater` names the one bundle the manifest will point at, by
+          # its suffix. The bundler signs every bundle it knows how to
+          # update from — on Linux that is the AppImage *and* the .deb —
+          # and the manifest builder refuses a directory with two
+          # signatures in it, on purpose.
           - platform: darwin-universal
             os: macos-14
             target: universal-apple-darwin
             bundles: app,dmg
+            updater: app.tar.gz
           - platform: windows-x86_64
             os: windows-2022
             target: x86_64-pc-windows-msvc
             bundles: msi
+            updater: msi
           - platform: windows-aarch64
             os: windows-2022
             target: aarch64-pc-windows-msvc
             bundles: msi
+            updater: msi
           - platform: linux-x86_64
             os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             bundles: appimage,deb
+            updater: AppImage
     runs-on: ${{ matrix.os }}
     # The slowest honest build is well under an hour; anything past it is
     # a hang, and the default cut-off is six.
@@ -156,14 +165,16 @@ jobs:
 
       # Two piles. `updater/` is the one signed artifact and its
       # signature, which is all the manifest builder will look at — it
-      # refuses a directory holding two signatures, on purpose.
-      # `installers/` is what a person downloads and double-clicks.
+      # refuses a directory holding two signatures, on purpose, which is
+      # why only the `updater` bundle's signature is taken and not every
+      # `.sig` the bundler wrote. `installers/` is what a person
+      # downloads and double-clicks.
       - name: Collect
         shell: bash
         run: |
           root="target/${{ matrix.target }}/release/bundle"
           mkdir -p updater installers
-          find "$root" -name '*.sig' -print0 | while IFS= read -r -d '' sig; do
+          find "$root" -name '*.${{ matrix.updater }}.sig' -print0 | while IFS= read -r -d '' sig; do
             cp "$sig" updater/
             cp "${sig%.sig}" updater/
           done
