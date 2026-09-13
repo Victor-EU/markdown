@@ -158,6 +158,40 @@ jobs:
           APPLE_API_KEY_PATH: ${{ runner.temp }}/api-key.p8
         run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --ci
 
+      # The bundler notarizes the .app and not the disk image around it,
+      # and Gatekeeper judges the image first: a quarantined, unnotarized
+      # .dmg is refused as "Unnotarized Developer ID" before the notarized
+      # app inside it is ever reached (v0.1.0 shipped that way). So the
+      # image is submitted too, and the ticket stapled so the verdict
+      # holds offline. Polled rather than `--wait`ed: one dropped
+      # connection during a long wait failed the 0.1.0 build.
+      - name: Notarize the disk image
+        if: runner.os == 'macOS' && env.APPLE_API_KEY_BASE64 != ''
+        shell: bash
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          dmg=$(find "target/${{ matrix.target }}/release/bundle" -name '*.dmg' -print -quit)
+          test -n "$dmg"
+          key=(--key "$RUNNER_TEMP/api-key.p8" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER")
+          id=$(xcrun notarytool submit "$dmg" "${key[@]}" --output-format json | jq -r .id)
+          echo "submitted $dmg as $id"
+          status="In Progress"
+          for _ in $(seq 1 120); do
+            status=$(xcrun notarytool info "$id" "${key[@]}" --output-format json | jq -r .status)
+            [ "$status" = "In Progress" ] || break
+            sleep 30
+          done
+          echo "notarization: $status"
+          if [ "$status" != "Accepted" ]; then
+            xcrun notarytool log "$id" "${key[@]}" || true
+            exit 1
+          fi
+          xcrun stapler staple "$dmg"
+          spctl -a -t open --context context:primary-signature -v "$dmg"
+
       - name: Forget the notarization key
         if: always()
         shell: bash

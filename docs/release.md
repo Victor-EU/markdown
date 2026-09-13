@@ -111,7 +111,8 @@ The tag starts `release.yml`, which:
 1. builds a universal macOS `.app` and `.dmg`, an x64 and an arm64 `.msi`,
    and a Linux `.AppImage` and `.deb`;
 2. signs each updater artifact with the updater key, and the macOS bundle
-   with the Developer ID certificate, then notarizes and staples it;
+   with the Developer ID certificate, then notarizes and staples it,
+   and the `.dmg` around it too (see below);
 3. builds `latest.json` from the `.sig` files that came out of the build,
    rather than from a list of names somebody maintains;
 4. creates the GitHub release **as a draft**.
@@ -123,7 +124,7 @@ tag rather than at a branch — everything downstream reads the ref as a
 version, so a branch would sign a build as `main` and draft a release
 called `main`.
 
-Two things the first release taught about the macOS leg:
+Three things the first release taught about the macOS leg:
 
 - **The first notarization from a new team is slow.** Apple held the
   first submission for 55 minutes; the second and third, minutes apart,
@@ -134,6 +135,14 @@ Two things the first release taught about the macOS leg:
   processing regardless — `xcrun notarytool history` with the API key
   shows the verdict — so the answer is **Re-run failed jobs** on the
   run, which keeps the bundles that finished.
+- **The bundler notarizes the `.app`, not the `.dmg`.** Gatekeeper
+  judges the disk image first, and `spctl -a -t open --context
+  context:primary-signature` on the 0.1.0 image said *rejected,
+  Unnotarized Developer ID* while the app inside said *accepted,
+  Notarized Developer ID*. Since 0.2.0 the workflow submits the image
+  as a second notarization and staples it, polling `notarytool info`
+  rather than holding one `--wait` open. That `spctl` line, run on a
+  Mac that did not build the image, is the check.
 
 Then, by hand:
 
