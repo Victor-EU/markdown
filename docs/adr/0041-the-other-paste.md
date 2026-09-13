@@ -50,7 +50,10 @@ nothing on it.
 
 Only where there is an editor: the command is greyed out in Read
 mode, which has no caret to paste at. The marks are not, because they
-work through the document's own state (ADR 0016).
+work through the document's own state (ADR 0016). And not on a
+document the app cannot write back, which it refuses with the same
+sentence typing and the marks refuse with; the first draft wrote into
+one, and the regression test for it is what caught that.
 
 ## The editor's own menu
 

@@ -1,4 +1,5 @@
 import { EditorView } from '@codemirror/view';
+import type { MenuEntry } from '@markdown/ipc';
 import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -628,6 +629,140 @@ describe('the marks on the keyboard', () => {
     expect(doc.text).toBe('One **two** three.\n');
     await pressInEditor('i', 'KeyI');
     expect(doc.text).toBe('One ***two*** three.\n');
+  });
+});
+
+describe('the other paste, through the shell (ADR 0041)', () => {
+  let clip: string | null = null;
+  let reads = 0;
+  let shown: MenuEntry[][] = [];
+
+  function startWith(files: Record<string, string> = { '/a/one.md': 'One two three.\n' }) {
+    clip = null;
+    reads = 0;
+    shown = [];
+    start(files, {
+      clipboardText: async () => {
+        reads += 1;
+        return clip;
+      },
+      contextMenu: (items) => {
+        shown.push(items);
+      },
+    });
+  }
+
+  /** Open the file, in Edit mode, with the caret at the start of `word`. */
+  async function editing(word: string) {
+    picked = ['/a/one.md'];
+    await press('KeyO');
+    await press('KeyE', { alt: true });
+    const doc = shell.workspace.activeDoc;
+    if (!doc) throw new Error('no document');
+    shell.workspace.view?.dispatch({ selection: { anchor: doc.text.indexOf(word) } });
+    return doc;
+  }
+
+  /** Let the clipboard read, and the edit after it, land. */
+  async function landed() {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await settle();
+  }
+
+  /** A right-click as the webview delivers one to `selector`. */
+  function rightClick(selector: string): MouseEvent {
+    const element = target.querySelector(selector);
+    if (!element) throw new Error(`nothing matches ${selector}`);
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+    element.dispatchEvent(event);
+    return event;
+  }
+
+  const word = (item: MenuEntry) =>
+    item.kind === 'standard' ? item.role : item.kind === 'command' ? item.id : 'separator';
+
+  it('pastes the clipboard as it is on Cmd+Shift+V', async () => {
+    startWith();
+    const doc = await editing('two');
+    clip = 'Quarterly results';
+    await press('KeyV', { shift: true });
+    await landed();
+    expect(doc.text).toBe('One Quarterly resultstwo three.\n');
+  });
+
+  it("takes the key from inside the editor, ahead of the editor's own keymap", async () => {
+    startWith();
+    const doc = await editing('two');
+    clip = 'Quarterly results';
+    const content = target.querySelector('.cm-content');
+    if (!content) throw new Error('no editor is mounted');
+    content.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'v',
+        code: 'KeyV',
+        metaKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await landed();
+    expect(doc.text).toBe('One Quarterly resultstwo three.\n');
+  });
+
+  it('does nothing in Read mode, where the command is off', async () => {
+    startWith();
+    picked = ['/a/one.md'];
+    await press('KeyO');
+    clip = 'Quarterly results';
+    await press('KeyV', { shift: true });
+    await landed();
+    expect(shell.workspace.activeDoc?.text).toBe('One two three.\n');
+    expect(reads).toBe(0);
+  });
+
+  it('runs by its id, which is how a chosen menu item comes back', async () => {
+    startWith();
+    const doc = await editing('two');
+    clip = 'Quarterly results';
+    expect(shell.registry.run('edit.pastePlain')).toBe(true);
+    await landed();
+    expect(doc.text).toBe('One Quarterly resultstwo three.\n');
+  });
+
+  it("describes the editor's menu on a right-click: the clipboard, both pastes, the marks", async () => {
+    startWith();
+    await editing('two');
+    expect(rightClick('.cm-content').defaultPrevented).toBe(true);
+    expect(shown).toHaveLength(1);
+    expect(shown[0]?.map(word)).toEqual([
+      'cut',
+      'copy',
+      'paste',
+      'edit.pastePlain',
+      'separator',
+      'edit.bold',
+      'edit.italic',
+      'edit.link',
+      'edit.code',
+    ]);
+    expect(
+      shown[0]?.find((item) => item.kind === 'command' && item.id === 'edit.pastePlain'),
+    ).toEqual({
+      kind: 'command',
+      id: 'edit.pastePlain',
+      title: 'Paste and Match Style',
+      accelerator: 'Command+Shift+KeyV',
+      enabled: true,
+    });
+  });
+
+  it("leaves Read mode the webview's own menu", async () => {
+    startWith();
+    picked = ['/a/one.md'];
+    await press('KeyO');
+    expect(rightClick('.read').defaultPrevented).toBe(false);
+    expect(shown).toEqual([]);
   });
 });
 

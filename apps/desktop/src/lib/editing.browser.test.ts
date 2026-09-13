@@ -1,7 +1,7 @@
 import type { MenuEntry } from '@markdown/ipc';
 import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { pastePlan } from './paste.ts';
+import { pastePlan, plainPlan } from './paste.ts';
 import { Workspace } from './workspace.svelte.ts';
 
 /**
@@ -239,18 +239,46 @@ describe('what a paste turns out to be', () => {
   });
 });
 
+describe('what Paste and Match Style turns out to be (ADR 0041)', () => {
+  it('is nothing without text', () => {
+    expect(plainPlan(null, false)).toEqual({ kind: 'nothing' });
+    expect(plainPlan('', true)).toEqual({ kind: 'nothing' });
+  });
+
+  it('is a link when a URL lands on a selection, however the paste was asked for', () => {
+    expect(plainPlan(' https://example.com/p\n', true)).toEqual({
+      kind: 'link',
+      url: 'https://example.com/p',
+    });
+  });
+
+  it('is the text itself when the same URL lands on a cursor', () => {
+    expect(plainPlan('https://example.com/p', false)).toEqual({
+      kind: 'insert',
+      text: 'https://example.com/p',
+    });
+  });
+
+  it('is the text itself otherwise, untrimmed and with its markdown unescaped', () => {
+    const text = '  **not bold** and [not](a link)\n\n| a | b |\n';
+    expect(plainPlan(text, true)).toEqual({ kind: 'insert', text });
+  });
+});
+
 describe('Paste and Match Style (ADR 0041)', () => {
   let clip: string | null = null;
+  let reader: () => Promise<string | null> = () => Promise.resolve(clip);
   let shown: MenuEntry[][] = [];
 
   /** A workspace with the clipboard and the native menu of a test's choosing. */
-  function openWith() {
+  function openWith(files: Record<string, string> = FILES) {
     clip = null;
+    reader = () => Promise.resolve(clip);
     shown = [];
-    ipc = createFakeIpc(FILES);
+    ipc = createFakeIpc(files);
     workspace = new Workspace({
       commands: ipc.commands,
-      clipboardText: async () => clip,
+      clipboardText: () => reader(),
       contextMenu: (items) => {
         shown.push(items);
       },
@@ -303,6 +331,81 @@ describe('Paste and Match Style (ADR 0041)', () => {
     expect(workspace.pastePlain()).toBe(false);
   });
 
+  it('replaces a selection that is not a URL, and leaves the caret after the text', async () => {
+    openWith();
+    await edit();
+    select(at('two'), at('two') + 3);
+    clip = 'deux';
+    workspace.pastePlain();
+    await landed();
+    expect(text()).toContain('One deux three.');
+    expect(workspace.view?.state.selection.main.head).toBe(at('deux') + 4);
+  });
+
+  it('keeps every character: markdown in the text is pasted, not escaped', async () => {
+    openWith();
+    await edit();
+    select(at('two'), at('two'));
+    clip = '*not* `code` [x](y)\n- item ';
+    workspace.pastePlain();
+    await landed();
+    expect(text()).toContain('One *not* `code` [x](y)\n- item two three.');
+  });
+
+  it('is one step of undo', async () => {
+    openWith();
+    await edit();
+    select(at('two'), at('two'));
+    clip = 'Quarterly results';
+    workspace.pastePlain();
+    await landed();
+    expect(text()).not.toBe(FILES['/a/one.md']);
+    expect(workspace.undo()).toBe(true);
+    expect(text()).toBe(FILES['/a/one.md']);
+  });
+
+  it('treats a clipboard that cannot be read as one with no text', async () => {
+    openWith();
+    reader = () => Promise.reject(new Error('not allowed'));
+    await edit();
+    workspace.pastePlain();
+    await landed();
+    expect(text()).toBe(FILES['/a/one.md']);
+    expect(workspace.status).toBe('The clipboard holds no text');
+  });
+
+  it('does not take on a document the app cannot write back', async () => {
+    openWith();
+    ipc.files.set('/a/one.md', {
+      content: 'One two three.\n',
+      format: { encoding: 'windows-1252' },
+    });
+    await edit();
+    clip = 'deux';
+    expect(workspace.pastePlain()).toBe(false);
+    await landed();
+    expect(text()).toBe('One two three.\n');
+    expect(workspace.status).toContain('convert to UTF-8');
+  });
+
+  it('goes nowhere when the reader has moved to another document before the read lands', async () => {
+    openWith({ ...FILES, '/a/two.md': 'Second.\n' });
+    await edit();
+    let release: (text: string | null) => void = () => {};
+    reader = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    expect(workspace.pastePlain()).toBe(true);
+    await edit('/a/two.md');
+    release('Quarterly results');
+    await landed();
+    // Neither the document it was asked in nor the one now in front.
+    expect(text()).toBe('Second.\n');
+    await workspace.openPath('/a/one.md');
+    expect(text()).toBe(FILES['/a/one.md']);
+  });
+
   /** A right-click on the editor's content, as the webview delivers one. */
   function rightClick(): MouseEvent {
     const content = host.querySelector('.cm-content');
@@ -315,10 +418,34 @@ describe('Paste and Match Style (ADR 0041)', () => {
   it("puts up the app's own menu on a right-click where there is a native one", async () => {
     openWith();
     const lines: MenuEntry[] = [{ kind: 'standard', role: 'paste' }];
-    workspace.editorMenu = () => lines;
+    let asked = 0;
+    workspace.editorMenu = () => {
+      asked += 1;
+      return lines;
+    };
     await edit();
     expect(rightClick().defaultPrevented).toBe(true);
     expect(shown).toEqual([lines]);
+    // The lines are read at each click, since what is enabled changes.
+    rightClick();
+    expect(asked).toBe(2);
+    expect(shown).toHaveLength(2);
+  });
+
+  it('shows it in Source mode too, which is the same editor', async () => {
+    openWith();
+    workspace.editorMenu = () => [{ kind: 'standard', role: 'copy' }];
+    await edit();
+    workspace.setMode('source');
+    expect(rightClick().defaultPrevented).toBe(true);
+    expect(shown).toHaveLength(1);
+  });
+
+  it('leaves the click alone when the shell has given it no lines', async () => {
+    openWith();
+    await edit();
+    expect(rightClick().defaultPrevented).toBe(false);
+    expect(shown).toEqual([]);
   });
 
   it('leaves the webview its own menu where there is no native one', async () => {

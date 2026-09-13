@@ -3199,7 +3199,7 @@ export class Workspace {
    */
   pastePlain(): boolean {
     const view = this.view;
-    if (!view) return false;
+    if (!view || !this.editable()) return false;
     void this.clipboardText().then((text) => {
       // The read is asynchronous, and the reader may have left the editor.
       if (this.view !== view) return;

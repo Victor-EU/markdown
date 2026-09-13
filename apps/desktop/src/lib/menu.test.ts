@@ -133,6 +133,20 @@ describe('the menu bar', () => {
     expect(edit.filter((line) => line === 'edit.pastePlain')).toHaveLength(1);
   });
 
+  it('turns the other paste on only where there is an editor', () => {
+    const on = (over: Record<string, unknown>) =>
+      command(menu(bar(over), 'Edit'), 'edit.pastePlain')?.enabled;
+    const doc = (mode: string) => ({
+      activeDoc: {},
+      activeTab: { id: 't', kind: 'document', mode },
+    });
+    expect(on(doc('edit'))).toBe(true);
+    expect(on(doc('source'))).toBe(true);
+    expect(on(doc('read'))).toBe(false);
+    expect(on({ activeTab: { id: 'p', kind: 'pdf' } })).toBe(false);
+    expect(on({})).toBe(false);
+  });
+
   it('says what pinning the tab in front would do', () => {
     const pin = (over: Record<string, unknown>) => command(menu(bar(over), 'Go'), 'go.pin');
     expect(pin({ activeTab: { id: 't', kind: 'document' } })).toMatchObject({ title: 'Pin Tab' });
@@ -196,6 +210,12 @@ describe('the editor menu (ADR 0041)', () => {
       accelerator: 'Command+Shift+KeyV',
       enabled: true,
     });
+  });
+
+  it('greys every command out with nothing open', () => {
+    const commands = lines({}).filter((item) => item.kind === 'command');
+    expect(commands).toHaveLength(5);
+    expect(commands.every((item) => item.kind === 'command' && !item.enabled)).toBe(true);
   });
 
   it('greys the other paste out where there is no editor to paste into', () => {
