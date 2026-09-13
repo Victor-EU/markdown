@@ -123,6 +123,18 @@ tag rather than at a branch — everything downstream reads the ref as a
 version, so a branch would sign a build as `main` and draft a release
 called `main`.
 
+Two things the first release taught about the macOS leg:
+
+- **The first notarization from a new team is slow.** Apple held the
+  first submission for 55 minutes; the second and third, minutes apart,
+  came back in under a minute. Nothing to fix, just not a hang.
+- **`notarytool --wait` has no retry.** The bundler polls Apple until
+  the verdict, and one dropped connection during that wait fails the
+  job with "The Internet connection appears to be offline". Apple keeps
+  processing regardless — `xcrun notarytool history` with the API key
+  shows the verdict — so the answer is **Re-run failed jobs** on the
+  run, which keeps the bundles that finished.
+
 Then, by hand:
 
 - Download the `.dmg` and open it on a machine that did not build it.
