@@ -199,6 +199,11 @@ describe('the whole thing, with the real engine', () => {
     expect(workspace.matches.total).toBe(1);
     expect(workspace.findStep(true)).toBe(true);
     expect(workspace.pdfPage).toBe(1);
+    // The mark lands when the page's text layer does, which is after
+    // the page element and on its own tick (`setHits` keeps hits for a
+    // page whose text is not laid yet, and `layText` marks it on the way
+    // out), so it is waited for and not assumed.
+    await until(() => host.querySelectorAll('.pdf-text mark').length === 1);
     // The match is marked where the word is, not across the line it
     // happens to share with the rest of the sentence.
     const marks = host.querySelectorAll('.pdf-text mark');

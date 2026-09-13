@@ -139,7 +139,21 @@ describe('coming to a document', () => {
       // they are still typing.
       workspace.view?.dispatch({ changes: { from: 0, insert: 'x' }, userEvent: 'input.type' });
       const edited = timed(() => workspace.countNow());
-      const toSource = timed(() => workspace.setMode('source'));
+      // The one switch with nothing cold about it, so the one measured
+      // more than once. It is a two-millisecond dispatch on every run
+      // that has been kept, including the shared runner's; the once it
+      // read 315 there was a pause landing on it, and a single sample
+      // cannot tell a pause from a regression. The least of three can,
+      // and a regression in the reconfigure is in all three. Each pass
+      // goes back through Edit so that every timed switch is a switch.
+      let toSource = Infinity;
+      for (let pass = 0; pass < 3; pass++) {
+        if (pass > 0) workspace.setMode('edit');
+        toSource = Math.min(
+          toSource,
+          timed(() => workspace.setMode('source')),
+        );
+      }
       const toRead = timed(() => {
         workspace.setMode('read');
         workspace.unmount();

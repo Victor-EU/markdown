@@ -63,7 +63,10 @@ are some.
   not something the runner can say.
 - **The noise itself.** Taking the best of several measurements would
   narrow it, and would change what is measured: a first open is a cold
-  one.
+  one. The one measurement with nothing cold in it, the reconfigure
+  between Edit and Source in `switch.bench.test.ts`, is the least of
+  three since a pause read as a regression on it once (315 ms against
+  80, on a run where every other sample was in range).
 - **No baseline.** Comparing each run with the runner's own history
   would catch regressions far smaller than five times a budget. It needs
   that history kept where a run can read it, and a way to say that a
