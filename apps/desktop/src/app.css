@@ -176,6 +176,7 @@ body,
   max-width: 220px;
   border-radius: 8px 8px 0 0;
   color: var(--muted);
+  touch-action: none;
 }
 
 .tab.pinned {
@@ -208,6 +209,42 @@ body,
 .tab.active {
   background: var(--active-bg);
   color: var(--bar-fg);
+}
+
+/*
+ * A tab being dragged (ADR 0040). The one in hand follows the pointer
+ * with no easing, so it is never behind it; its neighbours slide out of
+ * its way and back, and it slides the last of the way into its slot
+ * once let go of. Off the strip it lifts, which is where letting go
+ * tears it into a window of its own.
+ */
+.tabs.dragging .tab {
+  transition: transform 120ms ease;
+}
+
+.tab.dragged {
+  z-index: 1;
+  transition: none;
+  background: var(--active-bg);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.18);
+}
+
+.tab.dragged.settling {
+  transition: transform 120ms ease;
+}
+
+.tab.dragged.lifted {
+  opacity: 0.55;
+}
+
+/* The pointer is on the tab in hand, not on whatever it is drawn over. */
+.tabs.dragging .tab:not(.dragged):hover {
+  background: none;
+}
+
+.tab.dragged::before,
+.tab.dragged + .tab::before {
+  display: none;
 }
 
 .tab .label {

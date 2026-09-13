@@ -885,15 +885,47 @@ describe('a second window', () => {
     expect(status()).toBe('Moved one.md to a new window');
   });
 
+  /**
+   * A tab is dragged with the pointer and not the browser's drag and
+   * drop (ADR 0040): a press, a move past the slip, a release.
+   */
+  const middle = (element: Element) => {
+    const box = element.getBoundingClientRect();
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  };
+  const pointer = (type: string, at: { x: number; y: number }, target: EventTarget = window) => {
+    target.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        isPrimary: true,
+        button: 0,
+        buttons: type === 'pointerup' ? 0 : 1,
+        clientX: at.x,
+        clientY: at.y,
+      }),
+    );
+  };
+  /** Long enough for a let-go tab to slide into its slot. */
+  const settled = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await settle();
+  };
+
   it('takes a torn-off tab by the drag that tore it', async () => {
     start({ '/a/one.md': '# One\n' });
     await shell.workspace.openPath('/a/one.md');
     await settle();
     const tab = tabAt(0);
-    tab.dispatchEvent(new DragEvent('dragstart', { bubbles: true }));
-    // Let go of it somewhere that is not the strip, which is the
-    // gesture design 4.1 asks for.
-    tab.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+    const from = middle(tab);
+    pointer('pointerdown', from, tab);
+    // Let go of it well below the strip, which is the gesture design
+    // 4.1 asks for.
+    pointer('pointermove', { x: from.x, y: from.y + 120 });
+    await settle();
+    expect(tab.classList.contains('lifted')).toBe(true);
+    pointer('pointerup', { x: from.x, y: from.y + 120 });
     await settle();
     expect(
       ipc.calls.filter((call) => call.command === 'move_tab').map((call) => call.args[1]),
@@ -903,18 +935,76 @@ describe('a second window', () => {
     expect(labels()).toEqual([]);
   });
 
-  it('does not tear a tab that was dropped back on the strip', async () => {
+  it('reorders a tab dragged past its neighbour, and does not tear it', async () => {
     start({ '/a/one.md': '# One\n', '/a/two.md': '# Two\n' });
     await shell.workspace.openPath('/a/one.md');
     await shell.workspace.openPath('/a/two.md');
     await settle();
     const tab = tabAt(1);
-    tab.dispatchEvent(new DragEvent('dragstart', { bubbles: true }));
-    tabAt(0).dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true }));
-    tab.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+    const from = middle(tab);
+    const to = { x: tabAt(0).getBoundingClientRect().left + 4, y: from.y };
+    pointer('pointerdown', from, tab);
+    pointer('pointermove', to);
     await settle();
+    // In hand: the neighbour has made way, and nothing has moved yet.
+    expect(tab.classList.contains('dragged')).toBe(true);
+    expect((tabAt(0) as HTMLElement).style.transform).toMatch(/translateX\(\d/);
+    expect(labels()).toEqual(['one.md •', 'two.md •']);
+    pointer('pointerup', to);
+    await settled();
     expect(ipc.moved).toEqual([]);
     // Reordered rather than torn off. The dot is every tab's, dirty or not.
     expect(labels()).toEqual(['two.md •', 'one.md •']);
+    expect((tabAt(0) as HTMLElement).style.transform).toBe('');
+  });
+
+  it('puts a dragged tab back on Escape', async () => {
+    start({ '/a/one.md': '# One\n', '/a/two.md': '# Two\n' });
+    await shell.workspace.openPath('/a/one.md');
+    await shell.workspace.openPath('/a/two.md');
+    await settle();
+    const tab = tabAt(1);
+    const from = middle(tab);
+    pointer('pointerdown', from, tab);
+    pointer('pointermove', { x: tabAt(0).getBoundingClientRect().left + 4, y: from.y });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    pointer('pointerup', { x: from.x, y: from.y + 120 });
+    await settled();
+    expect(ipc.moved).toEqual([]);
+    expect(labels()).toEqual(['one.md •', 'two.md •']);
+  });
+
+  it('is a click until the press moves', async () => {
+    start({ '/a/one.md': '# One\n', '/a/two.md': '# Two\n' });
+    await shell.workspace.openPath('/a/one.md');
+    await shell.workspace.openPath('/a/two.md');
+    await settle();
+    const tab = tabAt(0);
+    const at = middle(tab);
+    pointer('pointerdown', at, tab);
+    pointer('pointermove', { x: at.x + 1, y: at.y + 1 });
+    pointer('pointerup', { x: at.x + 1, y: at.y + 1 });
+    await settle();
+    expect(tab.classList.contains('dragged')).toBe(false);
+    expect(labels()).toEqual(['one.md •', 'two.md •']);
+  });
+
+  it('keeps a pinned tab in the pinned block when dragged', async () => {
+    start({ '/a/one.md': '# One\n', '/a/two.md': '# Two\n', '/a/three.md': '# Three\n' });
+    await shell.workspace.openPath('/a/one.md');
+    await shell.workspace.openPath('/a/two.md');
+    await shell.workspace.openPath('/a/three.md');
+    await settle();
+    shell.workspace.togglePin(shell.workspace.tabs[0]?.id ?? '');
+    await settle();
+    expect(labels()).toEqual(['one.md •', 'two.md •', 'three.md •']);
+    const tab = tabAt(0);
+    const from = middle(tab);
+    const last = tabAt(2).getBoundingClientRect();
+    pointer('pointerdown', from, tab);
+    pointer('pointermove', { x: last.right - 4, y: from.y });
+    pointer('pointerup', { x: last.right - 4, y: from.y });
+    await settled();
+    expect(labels()).toEqual(['one.md •', 'two.md •', 'three.md •']);
   });
 });
