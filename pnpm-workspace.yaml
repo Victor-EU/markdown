@@ -3,6 +3,24 @@ packages:
   - packages/*
   - tools/*
 patchedDependencies:
+  # The incremental parser reuses a line's nodes from an old tree only when
+  # the fragment holding them also holds the newline before the line, so
+  # that the line was whole when it was parsed. The first line of the
+  # document has no newline before it, and there the check accepts any
+  # fragment starting at 0 -- including the one left by deleting text at
+  # the very front of the document, which starts mid-line in the old text.
+  # A first line indented by four spaces that loses one of them then keeps
+  # its old code block instead of becoming the paragraph (or math block)
+  # a fresh parse sees, and keeps it until something else invalidates the
+  # line. Found by the incremental property test in packages/markdown; the
+  # cases are in parser.test.ts. The patch refuses the reuse when a
+  # fragment starts at 0 in the new text but not in the old.
+  #
+  # Not reported upstream yet. Same rule as for @vitest/browser below on a
+  # bump: an unused patch fails the install, which is the cue to check
+  # whether the new release still has the reuse, and to re-cut the patch
+  # with `pnpm patch @lezer/markdown` or delete it.
+  '@lezer/markdown@1.7.2': patches/@lezer__markdown@1.7.2.patch
   # Two waits in the browser runner's orchestrator have no end: the one for a
   # test iframe's `load` event, and the one for the tester's `response:` after
   # it has acknowledged the run. A WebKit frame on a starved machine sometimes

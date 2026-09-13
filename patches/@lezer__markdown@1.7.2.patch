@@ -1,0 +1,42 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index a7f1502ce9663cff433857f3e353acff9b381a98..2b6008058a050c45e4133a9dee99ea7445fd550b 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -1871,7 +1871,15 @@ class FragmentCursor {
+     moveTo(pos, lineStart) {
+         while (this.fragment && this.fragment.to <= pos)
+             this.nextFragment();
+-        if (!this.fragment || this.fragment.from > (pos ? pos - 1 : 0))
++        // A line can only be reused from a fragment that also holds the
++        // newline before it, so that the line is whole in the old tree.
++        // The first line has no newline before it: there, the fragment
++        // has to begin where the old document began. One that begins at
++        // 0 but maps to a later old position starts mid-line -- text was
++        // deleted at the front of the document -- and its first-line
++        // nodes may have been parsed under indentation that is gone.
++        if (!this.fragment || this.fragment.from > (pos ? pos - 1 : 0) ||
++            (!pos && this.fragment.from == 0 && this.fragment.offset != 0))
+             return false;
+         if (this.fragmentEnd < 0) {
+             let end = this.fragment.to;
+diff --git a/dist/index.js b/dist/index.js
+index e5725e7b76c21832da1a3d2ed188ae042c06224c..8655d30c5a2e05ec3d6dba6eab8f05ca160a59fb 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1869,7 +1869,15 @@ class FragmentCursor {
+     moveTo(pos, lineStart) {
+         while (this.fragment && this.fragment.to <= pos)
+             this.nextFragment();
+-        if (!this.fragment || this.fragment.from > (pos ? pos - 1 : 0))
++        // A line can only be reused from a fragment that also holds the
++        // newline before it, so that the line is whole in the old tree.
++        // The first line has no newline before it: there, the fragment
++        // has to begin where the old document began. One that begins at
++        // 0 but maps to a later old position starts mid-line -- text was
++        // deleted at the front of the document -- and its first-line
++        // nodes may have been parsed under indentation that is gone.
++        if (!this.fragment || this.fragment.from > (pos ? pos - 1 : 0) ||
++            (!pos && this.fragment.from == 0 && this.fragment.offset != 0))
+             return false;
+         if (this.fragmentEnd < 0) {
+             let end = this.fragment.to;

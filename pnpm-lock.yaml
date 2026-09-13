@@ -106,6 +106,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  '@lezer/markdown@1.7.2': 179c7288862661e2519cbcc36f792a0a8a19d759c7c5db81cb111b91e3bd7388
   '@vitest/browser@5.0.0': 8c5da0ada6f4d666c2bad45d8c515ef468dfd4d1c309e1b7218ba0dfdddf0546
 
 importers:
@@ -253,7 +254,7 @@ importers:
         version: 1.2.3
       '@lezer/markdown':
         specifier: ~1.7.2
-        version: 1.7.2
+        version: 1.7.2(patch_hash=179c7288862661e2519cbcc36f792a0a8a19d759c7c5db81cb111b91e3bd7388)
       '@markdown/markdown':
         specifier: workspace:*
         version: link:../markdown
@@ -288,7 +289,7 @@ importers:
         version: 1.2.3
       '@lezer/markdown':
         specifier: ~1.7.2
-        version: 1.7.2
+        version: 1.7.2(patch_hash=179c7288862661e2519cbcc36f792a0a8a19d759c7c5db81cb111b91e3bd7388)
     devDependencies:
       '@types/node':
         specifier: ^24.13.3
@@ -2031,7 +2032,7 @@ snapshots:
       '@codemirror/state': 6.7.4
       '@codemirror/view': 6.43.11
       '@lezer/common': 1.5.2
-      '@lezer/markdown': 1.7.2
+      '@lezer/markdown': 1.7.2(patch_hash=179c7288862661e2519cbcc36f792a0a8a19d759c7c5db81cb111b91e3bd7388)
 
   '@codemirror/lang-php@6.0.2':
     dependencies:
@@ -2253,7 +2254,7 @@ snapshots:
     dependencies:
       '@lezer/common': 1.5.2
 
-  '@lezer/markdown@1.7.2':
+  '@lezer/markdown@1.7.2(patch_hash=179c7288862661e2519cbcc36f792a0a8a19d759c7c5db81cb111b91e3bd7388)':
     dependencies:
       '@lezer/common': 1.5.2
       '@lezer/highlight': 1.2.3
