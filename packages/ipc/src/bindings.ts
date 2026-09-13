@@ -298,6 +298,24 @@ export const commands = {
 	 *  way, and refusing to open would be the worse answer.
 	 */
 	setMenu: (sections: MenuSection[]) => __TAURI_INVOKE<void>("set_menu", { sections }),
+	/**
+	 *  Put up the editor's right-click menu, as the window describes it
+	 *  (ADR 0041). Async so the wait for the menu to close is not spent on
+	 *  the main thread inside the webview's own message handler; the popup
+	 *  itself hops to the main thread, as everything that draws does.
+	 * 
+	 *  A menu that cannot be shown is said so and let go, like the bar.
+	 */
+	showContextMenu: (items: MenuEntry[]) => __TAURI_INVOKE<void>("show_context_menu", { items }),
+	/**
+	 *  The plain-text flavour of the clipboard, for Paste and Match Style
+	 *  (ADR 0041). None when there is no text on it: an image, or nothing.
+	 * 
+	 *  Read here rather than in the page because the page may only read the
+	 *  clipboard inside a user gesture, and a menu item chosen from a native
+	 *  menu reaches it as an event, outside any.
+	 */
+	clipboardText: () => __TAURI_INVOKE<string | null>("clipboard_text"),
 };
 
 /** Events */

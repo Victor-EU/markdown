@@ -159,7 +159,7 @@ None of these are novel, and all of them are expected. Missing any one of them b
 - Cmd+B, Cmd+I, Cmd+K, Cmd+E for bold, italic, link, code. Applying a mark to a selection wraps it; applying to a word wraps the word.
 - Enter continues lists and task lists. Tab and Shift+Tab indent and outdent list items. Enter on an empty item ends the list.
 - Clicking a checkbox toggles `[ ]` and `[x]`. This is a one-byte change at a known position.
-- Paste a URL over a selection to make a link. Paste rich text converts to markdown. Paste an image writes it to an `assets/` folder next to the document and inserts a relative link. Drag and drop the same.
+- Paste a URL over a selection to make a link. Paste rich text converts to markdown. Paste an image writes it to an `assets/` folder next to the document and inserts a relative link. Drag and drop the same. Paste and Match Style (Cmd+Shift+V, also in the Edit menu and the editor's right-click menu) inserts the clipboard's plain text as it is (ADR 0041).
 - Tables: Tab and Shift+Tab move between cells. Enter moves down. Commands to add and remove rows and columns. "Format table" aligns the pipes on request.
 - Find and replace with regex. Native spell check from the webview.
 - Heading folding. Outline navigation. Cmd+= and Cmd+- zoom.

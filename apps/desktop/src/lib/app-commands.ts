@@ -15,6 +15,9 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
    * tab that would usually have one.
    */
   const hasDoc = () => workspace.activeDoc !== null;
+  /** An editor is on screen: Edit or Source mode, not Read. */
+  const hasEditor = () =>
+    workspace.activeTab?.kind === 'document' && workspace.activeTab.mode !== 'read';
   /**
    * Find is the one thing a PDF shares with a document, and it shares
    * only the bar: what it searches is text extracted from the pages
@@ -193,6 +196,18 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       key: 'Mod+E',
       enabled: hasDoc,
       run: () => workspace.code(),
+    },
+    // The other paste (ADR 0041). Cmd+V converts what it can to markdown;
+    // this one takes the clipboard's text as it is, for a title copied
+    // out of a page that would otherwise arrive as a link. Only where
+    // there is an editor to paste into: Read mode has no caret.
+    {
+      id: 'edit.pastePlain',
+      title: 'Paste and Match Style',
+      group: 'Edit',
+      key: 'Mod+Shift+V',
+      enabled: hasEditor,
+      run: () => workspace.pastePlain(),
     },
     {
       id: 'edit.highlight',

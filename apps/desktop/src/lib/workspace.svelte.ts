@@ -69,6 +69,7 @@ import type {
   FileRemoved,
   FileRenamed,
   FolderChange,
+  MenuEntry,
   MergeResult,
   Override,
   SearchDone,
@@ -116,7 +117,7 @@ import { snapshotTime } from './history.ts';
 import { imageResolver } from './images.ts';
 import { proposeFileName, renamedFile, untitledNumber } from './naming.ts';
 import { bookmarkRow, headingRow, type OutlineRow, type OutlineTarget } from './outline.ts';
-import { imageLink, isImagePath, pastePlan, toBase64 } from './paste.ts';
+import { imageLink, isImagePath, pastePlan, plainPlan, toBase64 } from './paste.ts';
 import {
   basename,
   dirname,
@@ -266,6 +267,19 @@ export interface WorkspaceOptions {
   assetUrl?: (path: string) => string;
   /** Where copies go. The system clipboard unless a test says otherwise. */
   clipboard?: ClipboardWriter;
+  /**
+   * The clipboard's plain text, for Paste and Match Style (ADR 0041).
+   * Rust reads it under Tauri, since a page may only read the clipboard
+   * inside a user gesture and a native menu item arrives outside one;
+   * elsewhere the browser's own reader, when it allows.
+   */
+  clipboardText?: () => Promise<string | null>;
+  /**
+   * Puts up the editor's right-click menu as a native one (ADR 0041).
+   * Absent outside Tauri on macOS, and then the webview's own is left
+   * alone.
+   */
+  contextMenu?: (items: MenuEntry[]) => void;
   /**
    * The updater (plan WP 1.12). Absent outside a bundled app, which is
    * every browser build and every test that does not ask for one, and
@@ -515,8 +529,14 @@ export class Workspace {
     EditorView.domEventHandlers({
       paste: (event, view) => this.onPaste(event, view),
       drop: (event, view) => this.onDrop(event, view),
+      contextmenu: (event) => this.onContextMenu(event),
     }),
   ];
+  /**
+   * The lines of the editor's right-click menu, set by the shell, which
+   * has the registry they are read from (ADR 0041). Null until it is.
+   */
+  editorMenu: (() => MenuEntry[]) | null = null;
   /** Where the updater has got to (plan WP 1.12). */
   update = $state<UpdateState>(IDLE);
   /** The running app's own version, which only Tauri knows. */
@@ -3155,6 +3175,61 @@ export class Workspace {
   private onDrop(event: DragEvent, view: EditorView): boolean {
     const at = view.posAtCoords({ x: event.clientX, y: event.clientY });
     return this.transfer(event.dataTransfer, view, at);
+  }
+
+  /**
+   * A right-click in the editor (ADR 0041). The webview's own menu is
+   * replaced by one of the app's when there is somewhere to put it up,
+   * which is Tauri on macOS; anywhere else the click is left alone.
+   */
+  private onContextMenu(event: MouseEvent): boolean {
+    const show = this.options.contextMenu;
+    const lines = this.editorMenu?.();
+    if (!show || !lines) return false;
+    event.preventDefault();
+    show(lines);
+    return true;
+  }
+
+  /**
+   * Paste and Match Style (ADR 0041): the clipboard's plain text, as it
+   * is. Cmd+V converts rich text to markdown, which is right for a table
+   * and wrong for a title copied out of a page as a link; this is the
+   * other paste, for the times the text is what was wanted.
+   */
+  pastePlain(): boolean {
+    const view = this.view;
+    if (!view) return false;
+    void this.clipboardText().then((text) => {
+      // The read is asynchronous, and the reader may have left the editor.
+      if (this.view !== view) return;
+      const plan = plainPlan(text, !view.state.selection.main.empty);
+      switch (plan.kind) {
+        case 'nothing':
+          this.status = 'The clipboard holds no text';
+          return;
+        case 'link':
+          applyLink(plan.url)(view);
+          return;
+        default:
+          view.dispatch({
+            ...view.state.replaceSelection(plan.text),
+            userEvent: 'input.paste',
+            scrollIntoView: true,
+          });
+      }
+    });
+    return true;
+  }
+
+  /** The clipboard's text, or null when it cannot be read or holds none. */
+  private clipboardText(): Promise<string | null> {
+    const read = this.options.clipboardText;
+    try {
+      return (read ? read() : navigator.clipboard.readText()).catch(() => null);
+    } catch {
+      return Promise.resolve(null);
+    }
   }
 
   private transfer(data: DataTransfer | null, view: EditorView, at: number | null): boolean {

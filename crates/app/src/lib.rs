@@ -26,9 +26,10 @@ use markdown_core::{
     Settings, SnapshotAuthor, SnapshotInfo, Store, TabMove, TabMoved, WatchEvent, Watcher,
     WindowContent, WindowState,
 };
-use menu::{MenuCommandEvent, MenuSection};
+use menu::{MenuCommandEvent, MenuEntry, MenuSection};
 use specta_typescript::Typescript;
 use tauri::Manager;
+use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
 /// What outlives a command: the folder watches behind the open documents,
@@ -1287,6 +1288,39 @@ fn set_menu(
     }
 }
 
+/// Put up the editor's right-click menu, as the window describes it
+/// (ADR 0041). Async so the wait for the menu to close is not spent on
+/// the main thread inside the webview's own message handler; the popup
+/// itself hops to the main thread, as everything that draws does.
+///
+/// A menu that cannot be shown is said so and let go, like the bar.
+#[tauri::command]
+#[specta::specta]
+async fn show_context_menu(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    items: Vec<MenuEntry>,
+) {
+    if let Err(error) = menu::popup(&app, &window.as_ref().window(), &items) {
+        eprintln!("could not show the context menu: {error}");
+    }
+}
+
+/// The plain-text flavour of the clipboard, for Paste and Match Style
+/// (ADR 0041). None when there is no text on it: an image, or nothing.
+///
+/// Read here rather than in the page because the page may only read the
+/// clipboard inside a user gesture, and a menu item chosen from a native
+/// menu reaches it as an event, outside any.
+#[tauri::command]
+#[specta::specta]
+fn clipboard_text(app: tauri::AppHandle) -> Option<String> {
+    app.clipboard()
+        .read_text()
+        .ok()
+        .filter(|text| !text.is_empty())
+}
+
 // --- the agent side (design 9, plan WP 3.1) ----------------------------
 
 /// One question on its way to a window, from the MCP server.
@@ -1943,6 +1977,8 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             rotate_agent_token,
             agent_client_config,
             set_menu,
+            show_context_menu,
+            clipboard_text,
         ])
         .events(collect_events![
             ExternalChangeEvent,
@@ -2087,6 +2123,9 @@ pub fn run(context: tauri::Context) {
         // reader can be told about it; Rust only carries the plugin.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Only for reading the clipboard's text on the Rust side, which
+        // is where Paste and Match Style has to read it (ADR 0041).
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(builder.invoke_handler())
         .on_menu_event(|app, event| {
             // Whose menus the bar is showing, for an item chosen while no

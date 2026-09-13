@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { appCommands } from './app-commands.ts';
 import { CommandRegistry } from './commands.ts';
-import { menuBar } from './menu.svelte.ts';
+import { editorMenu, menuBar } from './menu.svelte.ts';
 
 /**
  * As much of a workspace as the commands read to say whether they can
@@ -48,6 +48,12 @@ const ids = (items: ReturnType<typeof menu>) =>
 
 const roles = (items: ReturnType<typeof menu>) =>
   items.flatMap((item) => (item.kind === 'standard' ? [item.role] : []));
+
+/** Every line as one word: a role, a command id, or `separator`. */
+const lines = (items: ReturnType<typeof menu>) =>
+  items.map((item) =>
+    item.kind === 'standard' ? item.role : item.kind === 'command' ? item.id : 'separator',
+  );
 
 describe('the menu bar', () => {
   it('is the registry, in the order macOS puts it', () => {
@@ -112,6 +118,21 @@ describe('the menu bar', () => {
     expect(roles(edit)).not.toContain('undo');
   });
 
+  it('puts Paste and Match Style beside Paste, not among the marks (ADR 0041)', () => {
+    const edit = lines(menu(bar(), 'Edit'));
+    expect(edit.slice(0, 8)).toEqual([
+      'edit.undo',
+      'edit.redo',
+      'separator',
+      'cut',
+      'copy',
+      'paste',
+      'edit.pastePlain',
+      'select_all',
+    ]);
+    expect(edit.filter((line) => line === 'edit.pastePlain')).toHaveLength(1);
+  });
+
   it('says what pinning the tab in front would do', () => {
     const pin = (over: Record<string, unknown>) => command(menu(bar(over), 'Go'), 'go.pin');
     expect(pin({ activeTab: { id: 't', kind: 'document' } })).toMatchObject({ title: 'Pin Tab' });
@@ -136,5 +157,50 @@ describe('the menu bar', () => {
     const shown = new Set(menuBar(registry).flatMap((section) => ids(section.items)));
     const missing = registry.listed().filter((command) => !shown.has(command.id));
     expect(missing.map((command) => command.id)).toEqual([]);
+  });
+});
+
+describe('the editor menu (ADR 0041)', () => {
+  const inEditor = { activeDoc: {}, activeTab: { id: 't', kind: 'document', mode: 'edit' } };
+  const inRead = { activeDoc: {}, activeTab: { id: 't', kind: 'document', mode: 'read' } };
+
+  function lines(over: Record<string, unknown>) {
+    const registry = new CommandRegistry(true);
+    registry.register(...appCommands(workspace(over)));
+    return editorMenu(registry);
+  }
+
+  it('is the clipboard, both pastes, then the four marks', () => {
+    expect(
+      lines(inEditor).map((item) =>
+        item.kind === 'standard' ? item.role : item.kind === 'command' ? item.id : 'separator',
+      ),
+    ).toEqual([
+      'cut',
+      'copy',
+      'paste',
+      'edit.pastePlain',
+      'separator',
+      'edit.bold',
+      'edit.italic',
+      'edit.link',
+      'edit.code',
+    ]);
+  });
+
+  it('names the other paste as macOS does, with its key', () => {
+    expect(command(lines(inEditor), 'edit.pastePlain')).toEqual({
+      kind: 'command',
+      id: 'edit.pastePlain',
+      title: 'Paste and Match Style',
+      accelerator: 'Command+Shift+KeyV',
+      enabled: true,
+    });
+  });
+
+  it('greys the other paste out where there is no editor to paste into', () => {
+    expect(command(lines(inRead), 'edit.pastePlain')?.enabled).toBe(false);
+    // The marks still work from Read mode, through the document's state.
+    expect(command(lines(inRead), 'edit.bold')?.enabled).toBe(true);
   });
 });

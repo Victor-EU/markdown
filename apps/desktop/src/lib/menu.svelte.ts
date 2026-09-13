@@ -41,6 +41,10 @@ function item(command: Command, enabled: boolean): MenuEntry {
 const SETTINGS = 'file.settings';
 /** Read as one pair at the top of Edit, above the clipboard. */
 const HISTORY = ['edit.undo', 'edit.redo'];
+/** The other paste, which sits beside the standard one (ADR 0041). */
+const PASTE_PLAIN = 'edit.pastePlain';
+/** The four inline marks, in the order the keys are learnt. */
+const MARKS = ['edit.bold', 'edit.italic', 'edit.link', 'edit.code'];
 
 export function menuBar(registry: CommandRegistry): MenuSection[] {
   const grouped = new Map<MenuGroup, Command[]>(
@@ -78,9 +82,13 @@ export function menuBar(registry: CommandRegistry): MenuSection[] {
         standard('cut'),
         standard('copy'),
         standard('paste'),
+        ...entries('Edit', (command) => command.id === PASTE_PLAIN),
         standard('select_all'),
         SEPARATOR,
-        ...entries('Edit', (command) => !HISTORY.includes(command.id)),
+        ...entries(
+          'Edit',
+          (command) => !HISTORY.includes(command.id) && command.id !== PASTE_PLAIN,
+        ),
       ],
     },
     {
@@ -98,6 +106,29 @@ export function menuBar(registry: CommandRegistry): MenuSection[] {
       items: [standard('minimize'), standard('zoom'), SEPARATOR, standard('bring_all_to_front')],
     },
     { title: 'Help', items: entries('Help') },
+  ];
+}
+
+/**
+ * The editor's right-click menu (ADR 0041): the clipboard, with the paste
+ * that matches style beside the one that keeps it, then the four inline
+ * marks. Short on purpose. The webview's own menu, which this replaces,
+ * offered Font and AutoFill to a markdown file; what it had that this
+ * cannot is the spelling suggestions on a misspelled word, which live
+ * behind an API the webview does not expose.
+ */
+export function editorMenu(registry: CommandRegistry): MenuEntry[] {
+  const command = (id: string) => {
+    const found = registry.get(id);
+    return item(found, registry.isEnabled(found));
+  };
+  return [
+    standard('cut'),
+    standard('copy'),
+    standard('paste'),
+    command(PASTE_PLAIN),
+    SEPARATOR,
+    ...MARKS.map(command),
   ];
 }
 

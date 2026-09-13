@@ -18,6 +18,7 @@ import type {
   FileRenamed,
   FolderChange,
   Error as IpcError,
+  MenuEntry,
   MenuSection,
   MergeResult,
   Override,
@@ -133,6 +134,10 @@ export interface FakeIpc {
   rotations: number;
   /** The menu bar the window last described (build plan section 8). */
   menu: MenuSection[];
+  /** Every right-click menu the window has asked for, in order. */
+  contextMenus: MenuEntry[][];
+  /** What `clipboard_text` answers. Null is a clipboard with no text on it. */
+  clipboardText: string | null;
 }
 
 /**
@@ -331,6 +336,8 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     } as AgentStatus,
     rotations: 0,
     menu: [] as MenuSection[],
+    contextMenus: [] as MenuEntry[][],
+    clipboardText: null as string | null,
   };
   /** The search that has been started and not yet replaced or cancelled. */
   let search = 0;
@@ -865,6 +872,11 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       state.menu = sections;
       return record('set_menu', [sections], undefined);
     },
+    showContextMenu: (items) => {
+      state.contextMenus.push(items);
+      return record('show_context_menu', [items], undefined);
+    },
+    clipboardText: () => record('clipboard_text', [], state.clipboardText),
   };
   return {
     commands,
@@ -966,6 +978,15 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     },
     get menu() {
       return state.menu;
+    },
+    get contextMenus() {
+      return state.contextMenus;
+    },
+    get clipboardText() {
+      return state.clipboardText;
+    },
+    set clipboardText(text: string | null) {
+      state.clipboardText = text;
     },
     get rotations() {
       return state.rotations;

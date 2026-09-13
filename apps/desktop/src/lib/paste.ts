@@ -65,6 +65,23 @@ export function pastePlan(data: Transfer | null, selected: boolean): PastePlan {
   return { kind: 'text' };
 }
 
+/**
+ * What Paste and Match Style turns out to be (ADR 0041). Only the plain
+ * flavour of the clipboard is read, so there is no HTML to convert and
+ * no image to write; but a URL landing on a selection still makes a
+ * link, because that gesture means the same thing however it is pasted.
+ */
+export type PlainPlan =
+  | { kind: 'link'; url: string }
+  | { kind: 'insert'; text: string }
+  | { kind: 'nothing' };
+
+export function plainPlan(text: string | null, selected: boolean): PlainPlan {
+  if (text === null || text === '') return { kind: 'nothing' };
+  if (selected && isUrl(text.trim())) return { kind: 'link', url: text.trim() };
+  return { kind: 'insert', text };
+}
+
 /** The extensions a dropped file has to have before it is treated as an image. */
 const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp|bmp|tiff?|avif|heic|svg)$/i;
 

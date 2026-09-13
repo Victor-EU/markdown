@@ -1,3 +1,4 @@
+import type { MenuEntry } from '@markdown/ipc';
 import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pastePlan } from './paste.ts';
@@ -235,6 +236,96 @@ describe('what a paste turns out to be', () => {
 
   it('is nothing at all without a clipboard', () => {
     expect(pastePlan(null, true).kind).toBe('text');
+  });
+});
+
+describe('Paste and Match Style (ADR 0041)', () => {
+  let clip: string | null = null;
+  let shown: MenuEntry[][] = [];
+
+  /** A workspace with the clipboard and the native menu of a test's choosing. */
+  function openWith() {
+    clip = null;
+    shown = [];
+    ipc = createFakeIpc(FILES);
+    workspace = new Workspace({
+      commands: ipc.commands,
+      clipboardText: async () => clip,
+      contextMenu: (items) => {
+        shown.push(items);
+      },
+    });
+  }
+
+  /** Let the clipboard read, and the edit after it, land. */
+  const landed = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('inserts the text as it is, where the ordinary paste would convert it', async () => {
+    openWith();
+    await edit();
+    select(at('two'), at('two'));
+    const html = '<h2><a href="https://example.com/p">Quarterly results</a></h2>';
+    clip = 'Quarterly results';
+    // The same copy through Cmd+V: a linked heading, which is the complaint.
+    const ordinary = pastePlan(transfer({ html, text: clip }), false);
+    expect(ordinary.kind).toBe('markdown');
+    if (ordinary.kind === 'markdown') expect(ordinary.text).toContain('](https://example.com/p)');
+
+    expect(workspace.pastePlain()).toBe(true);
+    await landed();
+    expect(text()).toContain('One Quarterly resultstwo three.');
+  });
+
+  it('still makes a link of a URL that lands on a selection', async () => {
+    openWith();
+    await edit();
+    select(at('two'), at('two') + 3);
+    clip = 'https://example.com/p';
+    workspace.pastePlain();
+    await landed();
+    expect(text()).toContain('One [two](https://example.com/p) three.');
+  });
+
+  it('says so when the clipboard holds no text, and changes nothing', async () => {
+    openWith();
+    await edit();
+    workspace.pastePlain();
+    await landed();
+    expect(text()).toBe(FILES['/a/one.md']);
+    expect(workspace.status).toBe('The clipboard holds no text');
+  });
+
+  it('has nowhere to paste in Read mode', async () => {
+    openWith();
+    await workspace.openPath('/a/one.md');
+    workspace.unmount();
+    workspace.mountRead(host);
+    expect(workspace.pastePlain()).toBe(false);
+  });
+
+  /** A right-click on the editor's content, as the webview delivers one. */
+  function rightClick(): MouseEvent {
+    const content = host.querySelector('.cm-content');
+    if (!content) throw new Error('no editor is mounted');
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+    content.dispatchEvent(event);
+    return event;
+  }
+
+  it("puts up the app's own menu on a right-click where there is a native one", async () => {
+    openWith();
+    const lines: MenuEntry[] = [{ kind: 'standard', role: 'paste' }];
+    workspace.editorMenu = () => lines;
+    await edit();
+    expect(rightClick().defaultPrevented).toBe(true);
+    expect(shown).toEqual([lines]);
+  });
+
+  it('leaves the webview its own menu where there is no native one', async () => {
+    open();
+    workspace.editorMenu = () => [{ kind: 'standard', role: 'paste' }];
+    await edit();
+    expect(rightClick().defaultPrevented).toBe(false);
   });
 });
 

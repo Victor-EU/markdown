@@ -69,6 +69,18 @@ const shell = createShell({
         void getCurrentWindow().setTitle(title);
       }
     : undefined,
+  // Paste and Match Style reads the clipboard through Rust (ADR 0041):
+  // a native menu item reaches the page outside any user gesture, and
+  // inside one is the only time a page may read the clipboard itself.
+  clipboardText: isTauri() ? () => commands.clipboardText() : undefined,
+  // The editor's right-click menu is a native one where there is a
+  // native menu to give it: Tauri on macOS, as for the bar.
+  contextMenu:
+    isTauri() && isMac
+      ? (items) => {
+          void commands.showContextMenu(items);
+        }
+      : undefined,
 });
 
 /*

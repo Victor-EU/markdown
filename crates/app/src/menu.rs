@@ -11,6 +11,11 @@
 //! Only macOS is served from here. Elsewhere a menu is drawn inside the
 //! window, and this window's top edge is a tab strip (plan WP 2.8) with
 //! nowhere to put one; Windows menus are section 8's Windows work.
+//!
+//! The editor's right-click menu is built the same way (ADR 0041): the
+//! window describes the lines it wants in the same terms and `popup` puts
+//! them up at the pointer. A chosen line comes back by the same event the
+//! bar's do, so the page cannot tell which menu it was chosen from.
 
 use std::collections::HashMap;
 
@@ -18,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use tauri::menu::{
     AboutMetadata, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
 };
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Manager, Window, Wry};
 use tauri_specta::Event;
 
 /// Quit, as an item of the app's own rather than the standard one.
@@ -202,23 +207,7 @@ fn build(app: &AppHandle, sections: &[MenuSection]) -> tauri::Result<Built> {
     let mut items: HashMap<String, MenuItem<Wry>> = HashMap::new();
     let mut menus: Vec<Submenu<Wry>> = Vec::new();
     for section in sections {
-        let mut owned: Vec<Box<dyn IsMenuItem<Wry>>> = Vec::new();
-        for entry in &section.items {
-            owned.push(match entry {
-                MenuEntry::Separator => Box::new(PredefinedMenuItem::separator(app)?),
-                MenuEntry::Standard { role } => standard(app, *role)?,
-                MenuEntry::Command {
-                    id,
-                    title,
-                    accelerator,
-                    enabled,
-                } => {
-                    let item = MenuItem::with_id(app, id, title, *enabled, accelerator.as_deref())?;
-                    items.insert(id.clone(), item.clone());
-                    Box::new(item)
-                }
-            });
-        }
+        let owned = entries(app, &section.items, &mut items)?;
         let refs: Vec<&dyn IsMenuItem<Wry>> = owned.iter().map(|item| &**item).collect();
         menus.push(Submenu::with_items(app, &section.title, true, &refs)?);
     }
@@ -227,6 +216,51 @@ fn build(app: &AppHandle, sections: &[MenuSection]) -> tauri::Result<Built> {
         .map(|menu| menu as &dyn IsMenuItem<Wry>)
         .collect();
     Ok((Menu::with_items(app, &refs)?, items))
+}
+
+/// The items one list of entries describes, in order. The app's own are
+/// also put into `items` by command id, for the bar's later writes.
+fn entries(
+    app: &AppHandle,
+    lines: &[MenuEntry],
+    items: &mut HashMap<String, MenuItem<Wry>>,
+) -> tauri::Result<Vec<Box<dyn IsMenuItem<Wry>>>> {
+    let mut owned: Vec<Box<dyn IsMenuItem<Wry>>> = Vec::new();
+    for entry in lines {
+        owned.push(match entry {
+            MenuEntry::Separator => Box::new(PredefinedMenuItem::separator(app)?),
+            MenuEntry::Standard { role } => standard(app, *role)?,
+            MenuEntry::Command {
+                id,
+                title,
+                accelerator,
+                enabled,
+            } => {
+                let item = MenuItem::with_id(app, id, title, *enabled, accelerator.as_deref())?;
+                items.insert(id.clone(), item.clone());
+                Box::new(item)
+            }
+        });
+    }
+    Ok(owned)
+}
+
+/// Put these lines up as a menu at the pointer, in `window` (ADR 0041).
+///
+/// The standard items are the same `AppKit` selectors the bar's are, sent
+/// down the responder chain, so Cut, Copy and Paste reach the webview
+/// exactly as the bar's do and grey themselves out by the same rule. The
+/// app's own items carry their command ids and come back through
+/// `chosen`, like any item of the bar. Returns when the menu has closed.
+///
+/// # Errors
+/// Fails when an item cannot be built or the menu cannot be shown.
+pub fn popup(app: &AppHandle, window: &Window, lines: &[MenuEntry]) -> tauri::Result<()> {
+    let mut items = HashMap::new();
+    let owned = entries(app, lines, &mut items)?;
+    let refs: Vec<&dyn IsMenuItem<Wry>> = owned.iter().map(|item| &**item).collect();
+    let menu = Menu::with_items(app, &refs)?;
+    window.popup_menu(&menu)
 }
 
 fn standard(app: &AppHandle, role: MenuRole) -> tauri::Result<Box<dyn IsMenuItem<Wry>>> {
