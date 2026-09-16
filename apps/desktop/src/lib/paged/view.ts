@@ -86,6 +86,14 @@ export class PagedView {
   /** What Find has found, by page, so a page drawn later is marked too. */
   private hits = new Map<number, PagedHit[]>();
   private currentHit: PagedHit | null = null;
+  /** Stops being told about pages that arrive after the first ones. */
+  private readonly unwatch: () => void;
+  /**
+   * A place past the pages there are so far, kept until they arrive: a
+   * restored session asks for page 30 of a document whose engine has
+   * laid out three (ADR 0042).
+   */
+  private pending: { page: number; fraction: number } | null = null;
 
   constructor(options: PagedViewOptions) {
     this.parent = options.parent;
@@ -107,7 +115,29 @@ export class PagedView {
         ? null
         : new ResizeObserver(() => this.draw(this.centre()));
     this.resize?.observe(this.parent);
+    this.unwatch = this.doc.watchPages(() => this.grow());
     this.goTo(this.page, options.place.fraction);
+  }
+
+  /**
+   * More pages can be drawn than the list holds: give them page one's
+   * height, as `fill` did for the pages it had, and go where the reader
+   * was waiting to go if it has now arrived.
+   */
+  private grow(): void {
+    if (this.destroyed) return;
+    const nominal = this.doc.nominal;
+    while (this.heights.length < this.doc.pages) {
+      this.heights.push(nominal.height * this.zoom + GAP);
+    }
+    this.sheet.style.height = `${this.heights.total}px`;
+    const pending = this.pending;
+    if (pending && pending.page <= this.doc.pages) {
+      this.pending = null;
+      this.goTo(pending.page, pending.fraction);
+    } else {
+      this.schedule();
+    }
   }
 
   /**
@@ -161,6 +191,9 @@ export class PagedView {
 
   /** Put a page at the top of the window. */
   goTo(page: number, fraction = 0): void {
+    // A page the engine has not reached yet is remembered rather than
+    // clamped away; `grow` goes there when it exists.
+    this.pending = page > this.doc.pages && !this.doc.complete ? { page, fraction } : null;
     const at = Math.max(0, Math.min(page - 1, this.doc.pages - 1));
     const height = Math.max(1, this.heights.height(at) - GAP);
     this.parent.scrollTop = this.heights.upto(at) + height * fraction;
@@ -413,6 +446,7 @@ export class PagedView {
 
   destroy(): void {
     this.destroyed = true;
+    this.unwatch();
     if (this.frame !== 0) cancelAnimationFrame(this.frame);
     this.parent.removeEventListener('scroll', this.onScroll);
     this.resize?.disconnect();

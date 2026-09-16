@@ -46,19 +46,28 @@ export class PagedSearch {
     this.at = -1;
     this.running = true;
     const found: PagedHit[] = [];
-    for (let page = 1; page <= paged.pages; page++) {
-      const runs = await paged.text(page);
-      // The reader typed another letter, and these are answers to the
-      // question before it.
-      if (this.generation !== mine) return;
-      const pageHits = hitsInPage(runs, page, pattern);
-      if (pageHits.length > 0) {
-        found.push(...pageHits);
-        // A new array each time: the bar watches the reference.
-        this.hits = [...found];
+    // `pages` is a floor while the engine is still laying the document
+    // out (ADR 0042), so the walk catches up with it and then waits for
+    // the rest, rather than answering for the pages there happened to
+    // be when the reader started typing.
+    let page = 1;
+    for (;;) {
+      for (; page <= paged.pages; page++) {
+        const runs = await paged.text(page);
+        // The reader typed another letter, and these are answers to the
+        // question before it.
+        if (this.generation !== mine) return;
+        const pageHits = hitsInPage(runs, page, pattern);
+        if (pageHits.length > 0) {
+          found.push(...pageHits);
+          // A new array each time: the bar watches the reference.
+          this.hits = [...found];
+        }
       }
+      if (paged.complete) break;
+      await paged.whenLaidOut();
+      if (this.generation !== mine) return;
     }
-    if (this.generation !== mine) return;
     this.running = false;
   }
 

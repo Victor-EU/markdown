@@ -58,7 +58,22 @@ export interface TextRun {
   rect: readonly [number, number, number, number];
 }
 
+/** What `open` may be told beside the URL. */
+export interface OpenOptions {
+  /**
+   * Called as pages are laid out, by an engine that lays a document out
+   * progressively rather than whole (ADR 0042): `pages` is how many can
+   * be drawn so far, and `complete` is true exactly once, when the count
+   * is final. An engine that has every page before `open` resolves never
+   * calls it, and its `pages` is final from the start. The two
+   * behaviours look the same to a caller that treats `pages` as a floor
+   * until told otherwise, which is what the shell does.
+   */
+  onPages?: (pages: number, complete: boolean) => void;
+}
+
 export interface PagedDocument {
+  /** How many pages so far. Final, unless `open` was told it would grow. */
   readonly pages: number;
   size(page: number): Promise<PageSize>;
   render(request: RenderRequest): Promise<void>;
@@ -68,8 +83,12 @@ export interface PagedDocument {
 }
 
 export interface PageEngine {
-  /** The URL is the asset protocol's; the engine fetches it itself. */
-  open(url: string): Promise<PagedDocument>;
+  /**
+   * The URL is the asset protocol's; the engine fetches it itself.
+   * Resolves once the first page can be drawn, which for an engine that
+   * lays out progressively is before the last one can.
+   */
+  open(url: string, options?: OpenOptions): Promise<PagedDocument>;
   destroy(): void;
 }
 
@@ -93,8 +112,12 @@ export class PagedError extends Error {
   }
 }
 
-/** What the status bar says when a PDF will not open. */
-export function describePagedError(error: unknown, name: string): string {
+/**
+ * What the status bar says when a file will not open. `noun` is the
+ * format's own word for itself — "PDF", "document", "deck" — because
+ * "is not a readable PDF" over a deck is a lie in a status bar.
+ */
+export function describePagedError(error: unknown, name: string, noun = 'PDF'): string {
   if (!(error instanceof PagedError)) return `${name} could not be opened`;
   switch (error.reason) {
     case 'password':
@@ -102,7 +125,7 @@ export function describePagedError(error: unknown, name: string): string {
     case 'too_large':
       return `${name} is too large to open`;
     case 'corrupt':
-      return `${name} is not a readable PDF`;
+      return `${name} is not a readable ${noun}`;
     default:
       return `${name} could not be opened`;
   }

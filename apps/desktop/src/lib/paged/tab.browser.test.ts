@@ -2,6 +2,7 @@ import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Workspace } from '../workspace.svelte.ts';
 import type {
+  OpenOptions,
   PagedDocument,
   PagedOutlineEntry,
   PageEngine,
@@ -10,6 +11,7 @@ import type {
   TextRun,
 } from './engine.ts';
 import { PagedError } from './engine.ts';
+import { FORMATS, type PagedFormat } from './formats.ts';
 
 /**
  * A PDF as a tab (ADR 0035, WP 4.2 and 4.3), with a fake engine.
@@ -89,7 +91,7 @@ function open(files: Record<string, string>, pages = 2) {
   engine = fakeEngine(pages);
   workspace = new Workspace({
     commands: ipc.commands,
-    pageEngine: engine,
+    pageEngines: { pdf: engine },
     assetUrl: (path) => `asset://localhost/${path}`,
   });
 }
@@ -282,7 +284,7 @@ describe('the pane', () => {
     open({ '/a/paper.pdf': '%PDF' }, 10);
     await workspace.openPaths(['/a/paper.pdf']);
     await workspace.mountPaged(host);
-    workspace.goToPdfPage(4);
+    workspace.goToPage(4);
     await until(() => workspace.pagedPage === 4);
     expect(workspace.pagedView?.page).toBe(4);
     expect(workspace.pagedPage).toBe(4);
@@ -292,7 +294,7 @@ describe('the pane', () => {
     open({ '/a/paper.pdf': '%PDF' }, 10);
     await workspace.openPaths(['/a/paper.pdf']);
     await workspace.mountPaged(host);
-    workspace.goToPdfPage(3);
+    workspace.goToPage(3);
     workspace.unmountPaged();
     expect(workspace.activeTab?.paged?.page).toBe(3);
   });
@@ -391,9 +393,13 @@ describe('a PDF tab moved to another window', () => {
   function windows(files: Record<string, string>) {
     ipc = createFakeIpc(files);
     engine = fakeEngine(4);
-    const options = { commands: ipc.commands, pageEngine: engine, assetUrl: (p: string) => p };
+    const options = {
+      commands: ipc.commands,
+      pageEngines: { pdf: engine },
+      assetUrl: (p: string) => p,
+    };
     here = new Workspace(options);
-    there = new Workspace({ ...options, pageEngine: fakeEngine(4) });
+    there = new Workspace({ ...options, pageEngines: { pdf: fakeEngine(4) } });
   }
 
   function handed() {
@@ -465,5 +471,156 @@ describe('a PDF tab moved to another window', () => {
     const settings = here.openSettings();
     expect(await here.moveTab(settings.id)).toBe(false);
     expect(here.status).toContain('document or a PDF');
+  });
+});
+
+/**
+ * An engine that lays a document out progressively (ADR 0042): `open`
+ * resolves with three pages, and the rest arrive afterwards, the way
+ * the Office engine reports them. The fake is what the docx adapter
+ * does with its `onLayoutProgress`, without the library.
+ */
+function growingEngine(final = 9): PageEngine & { grow: (() => void)[] } {
+  const engine = {
+    grow: [] as (() => void)[],
+    async open(_url: string, options?: OpenOptions): Promise<PagedDocument> {
+      const document = {
+        pages: 3,
+        async size(): Promise<PageSize> {
+          return { width: 600, height: 800 };
+        },
+        async render(request: RenderRequest): Promise<void> {
+          request.canvas.width = 6;
+          request.canvas.height = 8;
+        },
+        async text(page: number): Promise<TextRun[]> {
+          return [{ text: `page ${page} hello`, rect: [10, 10, 60, 12] }];
+        },
+        async outline(): Promise<PagedOutlineEntry[]> {
+          return [];
+        },
+        destroy(): void {},
+      };
+      options?.onPages?.(3, false);
+      // Each call to `grow` is another batch of pages laid out; the
+      // last one says so.
+      engine.grow.push(() => {
+        document.pages = 6;
+        options?.onPages?.(6, false);
+      });
+      engine.grow.push(() => {
+        document.pages = final;
+        options?.onPages?.(final, true);
+      });
+      return document;
+    },
+    destroy(): void {},
+  };
+  return engine;
+}
+
+describe('pages that arrive as they are laid out (ADR 0042)', () => {
+  it('opens with the pages there are, and the count follows the engine', async () => {
+    ipc = createFakeIpc({ '/a/long.pdf': '%PDF' });
+    const growing = growingEngine(9);
+    workspace = new Workspace({
+      commands: ipc.commands,
+      pageEngines: { pdf: growing },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/long.pdf']);
+    const paged = workspace.activePaged;
+    expect(paged?.pages).toBe(3);
+    expect(paged?.complete).toBe(false);
+    expect(workspace.status).toBe('long.pdf · 3 pages');
+    growing.grow[0]?.();
+    expect(paged?.pages).toBe(6);
+    expect(paged?.complete).toBe(false);
+    growing.grow[1]?.();
+    expect(paged?.pages).toBe(9);
+    expect(paged?.complete).toBe(true);
+  });
+
+  it('lays out the new pages under the old ones and goes where the reader was waiting to go', async () => {
+    ipc = createFakeIpc({ '/a/long.pdf': '%PDF' });
+    const growing = growingEngine(9);
+    workspace = new Workspace({
+      commands: ipc.commands,
+      pageEngines: { pdf: growing },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/long.pdf']);
+    await workspace.mountPaged(host);
+    const sheet = host.querySelector<HTMLElement>('.paged-sheet');
+    const before = Number.parseFloat(sheet?.style.height ?? '0');
+    // Page 8 does not exist yet; the ask is kept rather than clamped.
+    workspace.goToPage(8);
+    growing.grow[0]?.();
+    growing.grow[1]?.();
+    const after = Number.parseFloat(sheet?.style.height ?? '0');
+    expect(after).toBeGreaterThan(before * 2.5);
+    await until(() => workspace.pagedPage === 8);
+    expect(workspace.pagedPage).toBe(8);
+  });
+
+  it('searches the pages that arrive after the walk began', async () => {
+    ipc = createFakeIpc({ '/a/long.pdf': '%PDF' });
+    const growing = growingEngine(9);
+    workspace = new Workspace({
+      commands: ipc.commands,
+      pageEngines: { pdf: growing },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/long.pdf']);
+    workspace.openFind(false);
+    workspace.updateFind({ query: 'hello' });
+    await until(() => workspace.pagedSearch.hits.length === 3);
+    expect(workspace.matches.capped).toBe(true);
+    growing.grow[0]?.();
+    growing.grow[1]?.();
+    await until(() => workspace.pagedSearch.hits.length === 9);
+    expect(workspace.pagedSearch.hits.length).toBe(9);
+    await until(() => !workspace.pagedSearch.running);
+    expect(workspace.matches.capped).toBe(false);
+  });
+});
+
+describe('a format of its own (ADR 0042)', () => {
+  /** A deck, the way WP 4 will register one, with the fake behind it. */
+  const DECKS: readonly PagedFormat[] = [
+    ...FORMATS,
+    { id: 'pptx', extensions: ['pptx'], unit: 'slide', noun: 'deck', filter: 'Office documents' },
+  ];
+
+  it('counts what the format counts, and names the format when it fails', async () => {
+    ipc = createFakeIpc({ '/a/deck.pptx': 'PK', '/a/missing.pptx': 'PK', '/a/paper.pdf': '%PDF' });
+    workspace = new Workspace({
+      commands: ipc.commands,
+      formats: DECKS,
+      pageEngines: { pdf: fakeEngine(2), pptx: fakeEngine(10) },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/deck.pptx']);
+    expect(workspace.activeTab?.kind).toBe('paged');
+    expect(workspace.status).toBe('deck.pptx · 10 slides');
+    await workspace.openPaths(['/a/missing.pptx']);
+    expect(workspace.status).toBe('missing.pptx is not a readable deck');
+    await workspace.openPaths(['/a/paper.pdf']);
+    expect(workspace.status).toBe('paper.pdf · 2 pages');
+  });
+
+  it('is a document when no engine claims the extension', async () => {
+    ipc = createFakeIpc({ '/a/deck.pptx': 'not a deck' });
+    workspace = new Workspace({
+      commands: ipc.commands,
+      formats: DECKS,
+      pageEngines: { pdf: fakeEngine(2) },
+      assetUrl: (p) => p,
+    });
+    // Registered as a format but with no engine in this build: the file
+    // says so rather than opening as text.
+    await workspace.openPaths(['/a/deck.pptx']);
+    expect(workspace.tabs.length).toBe(0);
+    expect(workspace.status).toBe('deck.pptx could not be opened');
   });
 });

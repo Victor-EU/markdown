@@ -1,7 +1,8 @@
 import { nextId } from '../document.svelte.ts';
 import { basename } from '../paths.ts';
-import type { TextRun } from './engine.ts';
+import type { OpenOptions, TextRun } from './engine.ts';
 import { type PagedDocument, PagedError, type PagedOutlineEntry, type PageSize } from './engine.ts';
+import type { PagedFormat } from './formats.ts';
 
 /** A PDF that is US Letter until the file says otherwise. */
 const LETTER: PageSize = { width: 612, height: 792 };
@@ -29,8 +30,17 @@ const LETTER: PageSize = { width: 612, height: 792 };
 export class PagedDoc {
   readonly id = nextId('paged');
   readonly path: string;
-  /** How many pages, once the file has been opened. Zero before that. */
+  /** Which kind of file, and so what a page is called and what engine reads it. */
+  readonly format: PagedFormat;
+  /**
+   * How many pages, once the file has been opened. Zero before that,
+   * and a floor rather than a total while `complete` is false: an
+   * engine that lays out progressively reports pages as they come (ADR
+   * 0042), and the view and the search both read this as it grows.
+   */
   pages = $state(0);
+  /** Whether `pages` is final. True until an engine says otherwise. */
+  complete = $state(true);
   /** The file's size in bytes, as Rust measured it on the way in. */
   byteLen = $state(0);
   /** The document's own bookmarks, once they have been asked for. */
@@ -41,7 +51,13 @@ export class PagedDoc {
   private opening: Promise<PagedDocument | null> | null = null;
   /** Set once given up, so a file still opening is not opened into it. */
   private gone = false;
-  private readonly load: () => Promise<{ document: PagedDocument; byteLen: number }>;
+  private readonly load: (
+    options: OpenOptions,
+  ) => Promise<{ document: PagedDocument; byteLen: number }>;
+  /** Told when `pages` grows; the view, which cannot watch a rune. */
+  private readonly watchers = new Set<(pages: number) => void>();
+  /** Waiting for `complete`; Find, which searches every page there is. */
+  private waiters: (() => void)[] = [];
   /**
    * Page sizes in points, as they have been asked for.
    *
@@ -59,14 +75,53 @@ export class PagedDoc {
 
   constructor(options: {
     path: string;
-    load: () => Promise<{ document: PagedDocument; byteLen: number }>;
+    format: PagedFormat;
+    load: (open: OpenOptions) => Promise<{ document: PagedDocument; byteLen: number }>;
   }) {
     this.path = options.path;
+    this.format = options.format;
     this.load = options.load;
   }
 
   get label(): string {
     return basename(this.path);
+  }
+
+  /** What a page is called here: "page", or "slide" for a deck. */
+  get unit(): 'page' | 'slide' {
+    return this.format.unit;
+  }
+
+  /**
+   * Be told each time more pages can be drawn. Returns the way to stop.
+   * A plain listener rather than a rune, because the view is a plain
+   * object and cannot watch one.
+   */
+  watchPages(listener: (pages: number) => void): () => void {
+    this.watchers.add(listener);
+    return () => this.watchers.delete(listener);
+  }
+
+  /** Resolves once `pages` is final — at once, for most documents. */
+  whenLaidOut(): Promise<void> {
+    if (this.complete) return Promise.resolve();
+    return new Promise((resolve) => this.waiters.push(resolve));
+  }
+
+  private grew(pages: number, complete: boolean): void {
+    // A floor never goes down: an engine reporting a page count it
+    // reported before is not a reason to take pages away from a view
+    // that has laid them out.
+    if (pages > this.pages) {
+      this.pages = pages;
+      for (const watcher of this.watchers) watcher(pages);
+    }
+    if (complete && !this.complete) {
+      this.complete = true;
+      const waiting = this.waiters;
+      this.waiters = [];
+      for (const resolve of waiting) resolve();
+    }
   }
 
   /** Whether the file is open and the pane has something to draw. */
@@ -88,7 +143,14 @@ export class PagedDoc {
 
   private async begin(): Promise<PagedDocument | null> {
     try {
-      const { document, byteLen } = await this.load();
+      const { document, byteLen } = await this.load({
+        onPages: (pages, complete) => {
+          // The first report is what says the count will grow; until
+          // then a document is complete, the way every PDF is.
+          if (!complete) this.complete = false;
+          this.grew(pages, complete);
+        },
+      });
       // Given up while the file was opening — a tab dragged to another
       // window, or a window closed. The engine has a document nobody
       // asked for any more, and it holds the whole file.
@@ -98,7 +160,7 @@ export class PagedDoc {
       }
       this.document = document;
       this.byteLen = byteLen;
-      this.pages = document.pages;
+      this.grew(document.pages, this.complete);
       this.measured.set(1, await document.size(1));
       this.failure = null;
       // The bookmarks are for the sidebar, and nothing waits on them —
@@ -196,5 +258,9 @@ export class PagedDoc {
     this.opening = null;
     this.measured.clear();
     this.runs.clear();
+    this.watchers.clear();
+    // A search waiting for the rest of a document that is going away
+    // should stop waiting, not wait for ever.
+    this.grew(this.pages, true);
   }
 }

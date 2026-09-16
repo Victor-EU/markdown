@@ -10,7 +10,7 @@ import App from './App.svelte';
 // Which pulls in every theme's colours and the bundled faces.
 import './app.css';
 import { watchMenu } from './lib/menu.svelte.ts';
-import { lazyPageEngine } from './lib/paged/lazy.ts';
+import { FORMATS, lazyEngines, openFilters } from './lib/paged/formats.ts';
 import { isMac } from './lib/platform.ts';
 import { createEnhancer } from './lib/read/enhance.ts';
 import { createShell } from './lib/shell.svelte.ts';
@@ -19,16 +19,18 @@ import { tauriUpdater } from './lib/update.ts';
 
 const FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdx', 'txt'] }];
 /**
- * What Cmd+O offers. A PDF is readable here but never written here, so
- * it is in the open panel and in neither of the save ones — and it is a
- * second entry rather than four more extensions on the first, because
- * the panel's own pop-up is where a reader narrows the list, and
- * "Markdown" that also means PDF is a lie in a menu.
+ * What Cmd+O offers. A paged file is readable here but never written
+ * here, so its formats are in the open panel and in neither of the save
+ * ones — and each is its own entry rather than more extensions on the
+ * first, because the panel's own pop-up is where a reader narrows the
+ * list, and "Markdown" that also means PDF is a lie in a menu. The
+ * entries come from the registry (ADR 0042), so a format added there
+ * is offered here without this file knowing.
  *
- * `bundle.fileAssociations` deliberately does not claim `.paged` (ADR
+ * `bundle.fileAssociations` deliberately claims none of them (ADR
  * 0035), so this and a drop are the two ways in.
  */
-const OPEN_FILTERS = [...FILTERS, { name: 'PDF', extensions: ['pdf'] }];
+const OPEN_FILTERS = [...FILTERS, ...openFilters(FORMATS)];
 const PAGE_FILTERS = [{ name: 'HTML', extensions: ['html', 'htm'] }];
 
 const shell = createShell({
@@ -50,10 +52,11 @@ const shell = createShell({
     void openUrl(url);
   },
   enhancer: createEnhancer({ dark: () => shell.workspace.darkPage }),
-  // pdf.js, behind the engine port and loaded on the first PDF (ADR
-  // 0035). Only under Tauri: the pane reads the file over the asset
-  // protocol, and a browser build has no such protocol to read it over.
-  pageEngine: isTauri() ? lazyPageEngine() : undefined,
+  // The page engines, behind the port and each loaded on the first file
+  // of its format (ADR 0035, ADR 0042). Only under Tauri: the pane reads
+  // the file over the asset protocol, and a browser build has no such
+  // protocol to read it over.
+  pageEngines: isTauri() ? lazyEngines() : undefined,
   // Images and PDFs load over the asset protocol, whose scope Rust
   // widens to each opened file's folder (design 8). Outside Tauri
   // nothing local loads.

@@ -74,7 +74,9 @@ const endpoint = $derived(
   -->
   {#if paged}
     <span class="cell">
-      {workspace.pagedPage > 0 ? `Page ${workspace.pagedPage} of ${paged.pages}` : `${paged.pages} pages`}
+      {workspace.pagedPage > 0
+        ? `${paged.unit === 'slide' ? 'Slide' : 'Page'} ${workspace.pagedPage} of ${paged.pages}`
+        : count(paged.pages, paged.unit)}
     </span>
     <span class="cell">{Math.round(workspace.pagedZoom * 100)}%</span>
   {/if}

@@ -182,7 +182,7 @@ describe('the whole thing, with the real engine', () => {
     const ipc = createFakeIpc({ '/a/standard.pdf': '%PDF' });
     workspace = new Workspace({
       commands: ipc.commands,
-      pageEngine: engine,
+      pageEngines: { pdf: engine },
       // The fixture is served by the test runner, so the "asset URL"
       // of the one path this workspace knows about is that.
       assetUrl: () => standardUrl,

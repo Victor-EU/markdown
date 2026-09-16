@@ -73,19 +73,6 @@ export function tabLabels(
 }
 
 /**
- * Whether a path names a file a page engine reads rather than text: a
- * PDF (ADR 0035), and from ADR 0042 the formats its registry lists.
- *
- * By extension, the way an image is recognised, and for the same reason:
- * this is asked of a path the OS handed over, before anything has been
- * read. A file whose name says nothing opens as a document, which is
- * what it has always done.
- */
-export function isPagedPath(path: string): boolean {
-  return /\.pdf$/i.test(path);
-}
-
-/**
  * Whether `path` is `dir` or something under it. Prefix matching alone
  * would put `/notes-old/x.md` inside `/notes`, so the separator is part
  * of the question.

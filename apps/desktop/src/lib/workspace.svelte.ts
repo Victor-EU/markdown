@@ -120,18 +120,11 @@ import { bookmarkRow, headingRow, type OutlineRow, type OutlineTarget } from './
 import { PagedDoc } from './paged/document.svelte.ts';
 import { describePagedError, PagedError, type PageEngine } from './paged/engine.ts';
 import { stepHit } from './paged/find.ts';
+import { FORMATS, type FormatId, formatOf, type PagedFormat } from './paged/formats.ts';
 import { PagedSearch } from './paged/search.svelte.ts';
 import { PagedView, stepZoom } from './paged/view.ts';
 import { imageLink, isImagePath, pastePlan, plainPlan, toBase64 } from './paste.ts';
-import {
-  basename,
-  dirname,
-  inside,
-  isPagedPath,
-  resolvePath,
-  shortenDir,
-  tabLabels,
-} from './paths.ts';
+import { basename, dirname, inside, resolvePath, shortenDir, tabLabels } from './paths.ts';
 import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
 import { FolderSearch } from './search.svelte.ts';
@@ -253,13 +246,20 @@ export interface WorkspaceOptions {
   /** Shiki, KaTeX and Mermaid. Left out in tests, which do not need them. */
   enhancer?: Enhancer;
   /**
-   * pdf.js, behind the engine port (ADR 0035). One more port on the
-   * same terms as `Enhancer`: the shell must not be able to tell which
-   * library is behind it, and a test hands in a dozen-line fake. Absent
-   * in a browser build and in every test that does not open a PDF, and
-   * then a PDF says so rather than opening a blank pane.
+   * What a paged tab can be (ADR 0042): the formats, by extension, with
+   * what a page is called in each. The registry is the default; a test
+   * hands in one with a format of its own.
    */
-  pageEngine?: PageEngine;
+  formats?: readonly PagedFormat[];
+  /**
+   * The engines behind the formats, by format (ADR 0035, ADR 0042). One
+   * more port on the same terms as `Enhancer`: the shell must not be
+   * able to tell which library is behind any of them, and a test hands
+   * in a dozen-line fake. Absent in a browser build and in every test
+   * that does not open one, and then the file says so rather than
+   * opening a blank pane.
+   */
+  pageEngines?: Partial<Record<FormatId, PageEngine>>;
   /**
    * Turns a local file path into a URL the webview may load, which under
    * Tauri is the asset protocol. Without it no local image loads, which
@@ -737,16 +737,21 @@ export class Workspace {
     const images = paths.filter(isImagePath);
     for (const path of paths) {
       if (isImagePath(path)) continue;
-      // A PDF is read by another engine entirely and must not go near
-      // `load`, which reads the file as text (ADR 0035).
-      if (isPagedPath(path)) await this.openPaged(path);
+      // A paged file is read by another engine entirely and must not go
+      // near `load`, which reads the file as text (ADR 0035).
+      if (this.formatOf(path)) await this.openPaged(path);
       else await this.openPath(path);
     }
     if (images.length > 0) await this.importImages(images);
   }
 
+  /** The paged format a path names, or null for a document (ADR 0042). */
+  formatOf(path: string): PagedFormat | null {
+    return formatOf(path, this.options.formats ?? FORMATS);
+  }
+
   async openPath(path: string): Promise<boolean> {
-    if (isPagedPath(path)) return this.openPaged(path);
+    if (this.formatOf(path)) return this.openPaged(path);
     const open = this.tabs.find((tab) => this.pathOf(tab) === path);
     if (open) {
       this.activate(open.id);
@@ -856,13 +861,13 @@ export class Workspace {
       await paged.ensure();
     } catch (error) {
       this.pagedDocs.delete(paged.id);
-      this.status = describePagedError(error, basename(path));
+      this.status = describePagedError(error, basename(path), paged.format.noun);
       return null;
     }
     const tab = this.insert(Workspace.blankTab('paged', paged.id, 'read'));
     tab.paged = { ...place };
     this.remember(path);
-    this.status = `${paged.label} · ${count(paged.pages, 'page')}`;
+    this.status = `${paged.label} · ${count(paged.pages, paged.unit)}`;
     return tab;
   }
 
@@ -874,14 +879,20 @@ export class Workspace {
    * its preview options rather than reaching for the workspace.
    */
   private newPaged(path: string): PagedDoc {
+    // Only reached for a path `formatOf` answered, so the fallback is
+    // for the type and not for a file: nothing arrives here by another
+    // road.
+    const format = this.formatOf(path) ?? (FORMATS[0] as PagedFormat);
     const paged = new PagedDoc({
       path,
-      load: async () => {
-        const { pageEngine, assetUrl } = this.options;
+      format,
+      load: async (open) => {
+        const { assetUrl } = this.options;
+        const pageEngine = this.options.pageEngines?.[format.id];
         // A browser build has neither, and a test has whichever it
         // asked for. Saying so beats a pane that renders nothing.
         if (!pageEngine || !assetUrl) {
-          throw new PagedError('unavailable', 'no page engine in this build');
+          throw new PagedError('unavailable', `no ${format.noun} engine in this build`);
         }
         const info = await this.options.commands.openPaged(path);
         if (info.status === 'error') {
@@ -895,7 +906,10 @@ export class Workspace {
         // again.
         const dir = dirname(path);
         if (dir !== '') this.allowed.add(dir);
-        return { document: await pageEngine.open(assetUrl(path)), byteLen: info.data.byte_len };
+        return {
+          document: await pageEngine.open(assetUrl(path), open),
+          byteLen: info.data.byte_len,
+        };
       },
     });
     this.pagedDocs.set(paged.id, paged);
@@ -1389,7 +1403,7 @@ export class Workspace {
     // it does when the OS hands a file over and when a session is put
     // back (ADR 0035). One rule in three places, rather than a second
     // fact on the wire that could disagree with the first.
-    if (path !== null && isPagedPath(path)) {
+    if (path !== null && this.formatOf(path)) {
       const arrived = await this.takePaged(path, {
         page: Math.max(1, move.page ?? 1),
         fraction: 0,
@@ -1584,7 +1598,7 @@ export class Workspace {
       try {
         await paged.ensure();
       } catch (error) {
-        this.status = describePagedError(error, paged.label);
+        this.status = describePagedError(error, paged.label, paged.format.noun);
         return;
       }
       // The reader may have moved on while the file was opening.
@@ -1650,7 +1664,7 @@ export class Workspace {
   }
 
   /** Go to a page, which is what a bookmark and the status bar both do. */
-  goToPdfPage(page: number): void {
+  goToPage(page: number): void {
     this.pagedView?.goTo(page);
   }
 
@@ -3668,7 +3682,7 @@ export class Workspace {
   /** Click an outline entry, of either kind. */
   goToOutline(target: OutlineTarget): void {
     if (target.kind === 'page') {
-      this.goToPdfPage(target.page);
+      this.goToPage(target.page);
       return;
     }
     this.goToOffset(target.id, target.from);
@@ -3813,7 +3827,7 @@ export class Workspace {
       // `restoreDoc` goes through `load`, which reads a file as text
       // (ADR 0035). Nothing is opened yet: the file is opened when a
       // pane mounts on it, so a session of PDFs costs one.
-      if (entry.path && isPagedPath(entry.path)) {
+      if (entry.path && this.formatOf(entry.path)) {
         docs.push(null);
         pagedDocs.push(this.newPaged(entry.path));
         continue;
@@ -4216,7 +4230,7 @@ export class Workspace {
     for (const paged of this.pagedDocs.values()) paged.destroy();
     this.pagedDocs.clear();
     for (const record of this.closed) record.paged?.destroy();
-    this.options.pageEngine?.destroy();
+    for (const engine of Object.values(this.options.pageEngines ?? {})) engine?.destroy();
     for (const timer of [this.countTimer, this.changeTimer, this.sessionTimer]) {
       if (timer !== null) clearTimeout(timer);
     }
