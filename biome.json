@@ -11,7 +11,8 @@
       "!corpus",
       "!apps/desktop/src-tauri/gen",
       "!pnpm-lock.yaml",
-      "!packages/ipc/src/bindings.ts"
+      "!packages/ipc/src/bindings.ts",
+      "!spikes"
     ]
   },
   "formatter": {

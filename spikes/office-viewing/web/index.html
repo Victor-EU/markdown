@@ -1,0 +1,145 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>loading</title>
+<style>
+  body { margin: 0; background: #6b6b6b; font-family: system-ui; }
+  #bar { position: static; background: #eee; padding: 6px 10px; font: 12px ui-monospace, monospace; white-space: pre-wrap; z-index: 9; }
+  #host { padding: 16px; display: flex; flex-direction: column; gap: 16px; align-items: center; }
+  .page { background: #fff; box-shadow: 0 2px 8px #0006; display: block; }
+  /* docx-preview draws its own pages; keep them the width we ask for */
+  .docx-wrapper { background: none !important; padding: 0 !important; }
+  .docx-wrapper > section.docx { box-shadow: 0 2px 8px #0006; margin-bottom: 16px !important; }
+</style>
+<div id="bar">loading…</div>
+<div id="host"></div>
+<script type="module">
+/**
+ * The spike's harness: one page, one library, one file, every page or
+ * slide drawn one under the other at a fixed width — the sequential
+ * view the app already gives a PDF (docs/office-viewing.md).
+ *
+ *   ?lib=silurus|aiden|docxpreview&f=samples/x.docx&w=720
+ *
+ * When it is done, <title> is "done" and window.__result holds what the
+ * runner records: page count, timings, the fonts the document asked for
+ * and what the platform has, and any errors.
+ */
+const q = new URLSearchParams(location.search);
+const lib = q.get('lib') ?? 'silurus';
+const file = q.get('f') ?? 'samples/thesis.docx';
+const width = Number(q.get('w') ?? 720);
+const kind = file.endsWith('.pptx') ? 'pptx' : 'docx';
+const host = document.getElementById('host');
+const bar = document.getElementById('bar');
+const result = { lib, file, kind, width, dpr: devicePixelRatio, pages: 0, ms: {}, perPage: [], fonts: {}, errors: [] };
+const now = () => performance.now();
+addEventListener('error', (e) => result.errors.push(String(e.message)));
+addEventListener('unhandledrejection', (e) => result.errors.push(String(e.reason)));
+
+// A run's font can be a whole CSS stack; check the first family only,
+// and treat a name the platform will not parse as "not installed".
+const fontsInstalled = (names) => Object.fromEntries(names.map((n) => {
+  const first = n.split(',')[0].replace(/["']/g, '').trim();
+  try { return [n, document.fonts.check(`12px "${first}"`)]; } catch { return [n, null]; }
+}));
+
+async function silurus() {
+  const t0 = now();
+  const mod = await import(`../node_modules/@silurus/ooxml/dist/${kind}.mjs`);
+  const { math } = await import('../node_modules/@silurus/ooxml/dist/math.mjs');
+  result.ms.import = now() - t0;
+  const t1 = now();
+  const doc = kind === 'docx'
+    ? await mod.DocxDocument.load('../' + file, { math })
+    : await mod.PptxPresentation.load('../' + file, { math });
+  await doc.waitUntilLayoutComplete();
+  result.ms.load = now() - t1;
+  const count = kind === 'docx' ? doc.pageCount : doc.slideCount;
+  result.pages = count;
+  const asked = new Set();
+  const t2 = now();
+  for (let i = 0; i < count; i++) {
+    const size = kind === 'docx' ? { w: doc.pageSize(i).widthPt, h: doc.pageSize(i).heightPt } : { w: doc.slideWidth, h: doc.slideHeight };
+    const canvas = document.createElement('canvas');
+    canvas.className = 'page';
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${(width * size.h) / size.w}px`;
+    host.append(canvas);
+    const t = now();
+    const onTextRun = (run) => { const f = run.fontFamily ?? run.font; if (f) asked.add(f); };
+    if (kind === 'docx') await doc.renderPage(canvas, i, { width, dpr: devicePixelRatio, onTextRun });
+    else await doc.renderSlide(canvas, i, { width, dpr: devicePixelRatio, onTextRun });
+    result.perPage.push(Math.round(now() - t));
+  }
+  result.ms.render = now() - t2;
+  const families = [...new Set([...asked].map((f) => (f.match(/"([^"]+)"/) ?? [, f])[1]))].sort();
+  result.fonts.asked = families;
+  result.fonts.installed = fontsInstalled(families);
+  result.fonts.stacks = [...asked].slice(0, 2);
+  if (kind === 'docx') {
+    const runs = await doc.collectPageRuns(0);
+    result.fonts.firstPageRuns = runs.slice(0, 6).map((r) => ({ text: r.text.slice(0, 30), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h), font: r.fontFamily ?? r.font ?? null }));
+  } else {
+    const runs = await doc.collectSlideRuns(0);
+    result.fonts.firstPageRuns = runs.slice(0, 6).map((r) => ({ text: r.text.slice(0, 30), font: r.font ?? null, size: r.fontSize }));
+    result.notes = doc.getNotes(0);
+  }
+  result.metrics = await doc.getResourceMetrics().catch(() => null);
+}
+
+async function aiden() {
+  const t0 = now();
+  const { PptxViewer, RECOMMENDED_ZIP_LIMITS } = await import('../node_modules/@aiden0z/pptx-renderer/dist/aiden0z-pptx-renderer.browser.es.js');
+  result.ms.import = now() - t0;
+  const buf = await (await fetch('../' + file)).arrayBuffer();
+  host.style.width = `${width}px`;
+  const t1 = now();
+  const viewer = await PptxViewer.open(buf, host, { zipLimits: RECOMMENDED_ZIP_LIMITS, listOptions: { windowed: false }, fitMode: 'contain' });
+  result.ms.load = now() - t1;
+  result.ms.render = 0;
+  result.pages = viewer.slideCount ?? viewer.presentation?.slides?.length ?? host.querySelectorAll('[data-slide-index], .pptx-slide, section').length;
+  result.slideSize = [viewer.slideWidth, viewer.slideHeight];
+  const asked = new Set([...host.querySelectorAll('*')].map((el) => getComputedStyle(el).fontFamily.split(',')[0].replace(/"/g, '').trim()).filter(Boolean));
+  result.fonts.asked = [...asked].sort();
+  result.fonts.installed = fontsInstalled([...asked]);
+  result.nodes = host.querySelectorAll('*').length;
+  result.domSample = [...host.children].slice(0, 2).map((el) => el.outerHTML.slice(0, 160));
+}
+
+async function docxpreview() {
+  const t0 = now();
+  // docx-preview's ESM build imports the bare name "jszip", which a page
+  // without a bundler cannot resolve; the UMD builds share a global instead.
+  const script = (src) => new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => fail(new Error('failed to load ' + src)); document.head.append(s); });
+  await script('../node_modules/jszip/dist/jszip.min.js');
+  await script('../node_modules/docx-preview/dist/docx-preview.min.js');
+  const { renderAsync } = window.docx;
+  result.ms.import = now() - t0;
+  const buf = await (await fetch('../' + file)).arrayBuffer();
+  const t1 = now();
+  await renderAsync(buf, host, null, { renderHeaders: true, renderFooters: true, renderFootnotes: true, renderEndnotes: true, inWrapper: true, breakPages: true, useBase64URL: true, ignoreWidth: false, ignoreHeight: false });
+  result.ms.load = now() - t1;
+  result.ms.render = 0;
+  const pages = host.querySelectorAll('section.docx');
+  result.pages = pages.length;
+  for (const p of pages) { p.style.width = `${width}px`; p.style.minHeight = ''; p.style.zoom = ''; }
+  const asked = new Set([...host.querySelectorAll('p, span')].map((el) => getComputedStyle(el).fontFamily.split(',')[0].replace(/"/g, '').trim()).filter(Boolean));
+  result.fonts.asked = [...asked].sort();
+  result.fonts.installed = fontsInstalled([...asked]);
+}
+
+const runners = { silurus, aiden, docxpreview };
+try {
+  if (!runners[lib]) throw new Error(`unknown lib ${lib}`);
+  if (lib === 'aiden' && kind !== 'pptx') throw new Error('aiden renders pptx only');
+  if (lib === 'docxpreview' && kind !== 'docx') throw new Error('docx-preview renders docx only');
+  await runners[lib]();
+} catch (e) {
+  result.errors.push(String(e?.stack ?? e));
+}
+result.ms.total = now();
+for (const k of Object.keys(result.ms)) result.ms[k] = Math.round(result.ms[k]);
+window.__result = result;
+bar.textContent = `${lib} · ${file} · ${result.pages} pages · load ${result.ms.load} ms · render ${result.ms.render} ms · fonts ${JSON.stringify(result.fonts.asked)}` + (result.errors.length ? `\nERRORS ${result.errors.join(' | ')}` : '');
+document.title = 'done';
+</script>
