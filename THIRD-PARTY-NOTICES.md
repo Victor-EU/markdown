@@ -9,9 +9,12 @@ package under `node_modules/@fontsource-variable/<name>/LICENSE`.
 | Inter | the sans | <https://github.com/rsms/inter> | Copyright 2016 The Inter Project Authors |
 | Source Serif 4 | the serif | <https://github.com/adobe-fonts/source-serif> | Google Inc. |
 | JetBrains Mono | the monospace | <https://github.com/JetBrains/JetBrainsMono> | Copyright 2020 The JetBrains Mono Project Authors |
+| Carlito | Calibri's metric-compatible stand-in in Word documents and decks (ADR 0042) | <https://github.com/googlefonts/carlito> | Copyright 2010–2013 by tyPoland Lukasz Dziedzic |
+| Caladea | Cambria's, the same way | <https://github.com/huertatipografica/Caladea> | Copyright 2012 The Caladea Project Authors |
 
 Only the Latin and Latin Extended subsets are bundled; see
-`apps/desktop/src/fonts.css`.
+`apps/desktop/src/fonts.css`, and `paged/engines/office-fonts.ts` for the two
+stand-ins, which are registered under the names the documents use.
 
 This file ships inside the application. On macOS it is at
 `Markdown.app/Contents/Resources/THIRD-PARTY-NOTICES.md`; the Settings

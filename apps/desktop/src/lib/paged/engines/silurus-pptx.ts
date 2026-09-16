@@ -10,6 +10,7 @@ import {
   type RenderRequest,
   type TextRun,
 } from '../engine.ts';
+import { officeFontsReady } from './office-fonts.ts';
 import { failureOf, ooxmlBytes } from './silurus-docx.ts';
 
 /**
@@ -92,6 +93,8 @@ export class SilurusPptxEngine implements PageEngine {
   async open(url: string, _options?: OpenOptions): Promise<PagedDocument> {
     let deck: PptxPresentation;
     try {
+      // The fonts first, because layout measures them (WP 5).
+      await officeFontsReady();
       const bytes = await ooxmlBytes(url);
       deck = await PptxPresentation.load(bytes, { math, wasmUrl: WASM_URL, ...LIMITS });
       await deck.waitUntilLayoutComplete();

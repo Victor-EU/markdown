@@ -11,6 +11,7 @@ import {
   type RenderRequest,
   type TextRun,
 } from '../engine.ts';
+import { officeFontsReady } from './office-fonts.ts';
 
 /**
  * The Word engine, behind the port (ADR 0042).
@@ -162,6 +163,8 @@ export class SilurusDocxEngine implements PageEngine {
   async open(url: string, options?: OpenOptions): Promise<PagedDocument> {
     let doc: DocxDocument | null = null;
     try {
+      // The fonts first, because layout measures them (WP 5).
+      await officeFontsReady();
       const bytes = await ooxmlBytes(url);
       doc = await DocxDocument.load(bytes, {
         math,

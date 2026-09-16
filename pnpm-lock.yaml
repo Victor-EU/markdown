@@ -155,6 +155,12 @@ importers:
       '@fontsource-variable/source-serif-4':
         specifier: 5.3.0
         version: 5.3.0
+      '@fontsource/caladea':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/carlito':
+        specifier: 5.3.0
+        version: 5.3.0
       '@lezer/common':
         specifier: ~1.5.2
         version: 1.5.2
@@ -532,6 +538,12 @@ packages:
 
   '@fontsource-variable/source-serif-4@5.3.0':
     resolution: {integrity: sha512-9vch9WqxjaaA+1o9Ur8pOgIGbCYLjRReOUel23A6lOpD1syptgjtkORevvNmldJ5kGXQL29onQUqI5Ltz0s3bQ==}
+
+  '@fontsource/caladea@5.3.0':
+    resolution: {integrity: sha512-ErBJWj9Gp/tTS33h0SUHmU3MCHzQa3RJS405ccznE8xxVK41J+mrKhjjcf3oIrnQTCgICMbl9nAH3XMXN9ANUg==}
+
+  '@fontsource/carlito@5.3.0':
+    resolution: {integrity: sha512-oPqvLGK/dtVzC4KjdDcV/YzQq37sZdMXxD58ADvguPo3dm6yzbBKs40ADmevJF0wLvyvJY7/fPl5YkCQ1njWUw==}
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -2280,6 +2292,10 @@ snapshots:
   '@fontsource-variable/jetbrains-mono@5.3.0': {}
 
   '@fontsource-variable/source-serif-4@5.3.0': {}
+
+  '@fontsource/caladea@5.3.0': {}
+
+  '@fontsource/carlito@5.3.0': {}
 
   '@iconify/types@2.0.0': {}
 
