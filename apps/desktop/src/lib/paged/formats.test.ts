@@ -4,7 +4,6 @@ import { FORMATS, formatOf, openFilters, type PagedFormat } from './formats.ts';
 /** The registry with a second format in it, the shape WP 4 adds. */
 const WITH_DECKS: readonly PagedFormat[] = [
   ...FORMATS,
-  { id: 'docx', extensions: ['docx'], unit: 'page', noun: 'document', filter: 'Office documents' },
   { id: 'pptx', extensions: ['pptx'], unit: 'slide', noun: 'deck', filter: 'Office documents' },
 ];
 

@@ -18,6 +18,7 @@
     "bench": "vitest run --project bench",
     "corpus:gen": "node --env-file-if-exists=.env tools/corpus-gen/generate.mjs",
     "pdf:fixtures": "node tools/pdf-fixtures/generate.mjs",
+    "office:fixtures": "pnpm --filter @markdown/office-fixtures generate",
     "release:version": "node tools/release/set-version.mjs",
     "release:manifest": "node tools/release/main.mjs"
   },

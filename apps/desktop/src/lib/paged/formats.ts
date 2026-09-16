@@ -26,6 +26,7 @@ export interface PagedFormat {
 
 export const FORMATS: readonly PagedFormat[] = [
   { id: 'pdf', extensions: ['pdf'], unit: 'page', noun: 'PDF', filter: 'PDF' },
+  { id: 'docx', extensions: ['docx'], unit: 'page', noun: 'document', filter: 'Office documents' },
 ];
 
 /**
@@ -38,6 +39,7 @@ export const FORMATS: readonly PagedFormat[] = [
  */
 const ENGINES: Partial<Record<FormatId, () => Promise<PageEngine>>> = {
   pdf: () => import('./engines/pdfjs.ts').then((m) => new m.PdfJsEngine()),
+  docx: () => import('./engines/silurus-docx.ts').then((m) => new m.SilurusDocxEngine()),
 };
 
 /** The format a path names, by extension, or null for a document. */

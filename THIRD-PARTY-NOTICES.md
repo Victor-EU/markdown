@@ -46,6 +46,22 @@ The QuickJS sandbox that runs a PDF's own JavaScript is deliberately not
 among them: this app builds its own pane on the core API, with no
 annotation layer and so no scripting path (ADR 0035).
 
+## The Office engine, and the equation renderer it carries
+
+Word documents and decks are rendered by `@silurus/ooxml` (ADR 0042),
+used under the MIT licence. Its two parsers are WebAssembly copied into
+the application and shipped as content, so its notices ship with them.
+
+| Part | Shipped as | Licence | Upstream |
+|---|---|---|---|
+| @silurus/ooxml | the engine, its workers and layout | MIT | <https://github.com/yukiyokotani/office-open-xml-viewer> |
+| Word and PowerPoint parsers | `paged/docx_parser_bg.wasm`, `paged/pptx_parser_bg.wasm` | MIT, over Rust crates under MIT, Apache-2.0 and Unicode-3.0 | the same, see its `THIRD_PARTY_NOTICES.md` |
+| MathJax and STIX Two Math | a chunk fetched by a document with an equation | Apache-2.0 | <https://www.mathjax.org/>, <https://github.com/stipub/stixfonts> |
+
+The library's own `LICENSE` and `THIRD_PARTY_NOTICES.md` are copied
+beside the parsers by `apps/desktop/office-assets.ts`, which is also the
+one list of what is shipped.
+
 Every other dependency is a build-time or runtime library resolved by
 pnpm and Cargo; their licences are recorded in `pnpm-lock.yaml` and
 `Cargo.lock` and are not redistributed as content.

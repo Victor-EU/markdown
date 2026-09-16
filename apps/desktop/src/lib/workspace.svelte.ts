@@ -867,7 +867,18 @@ export class Workspace {
     const tab = this.insert(Workspace.blankTab('paged', paged.id, 'read'));
     tab.paged = { ...place };
     this.remember(path);
-    this.status = `${paged.label} · ${count(paged.pages, paged.unit)}`;
+    // A count that is still growing says so, and is said again once it
+    // is final — unless the reader has moved on to something else by
+    // then, in which case the bar is theirs (ADR 0042).
+    const said = () =>
+      `${paged.label} · ${count(paged.pages, paged.unit)}${paged.complete ? '' : '…'}`;
+    this.status = said();
+    if (!paged.complete) {
+      const provisional = this.status;
+      void paged.whenLaidOut().then(() => {
+        if (this.status === provisional) this.status = said();
+      });
+    }
     return tab;
   }
 

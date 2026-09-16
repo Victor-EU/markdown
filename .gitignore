@@ -14,3 +14,6 @@ md-reader-review-*.html
 
 # pdf.js data, copied out of node_modules at build time (ADR 0035).
 apps/desktop/public/pdfjs/
+
+# The Office engine's WebAssembly, copied out of node_modules at build time (ADR 0042).
+apps/desktop/public/paged/

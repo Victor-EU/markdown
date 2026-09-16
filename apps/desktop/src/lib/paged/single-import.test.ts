@@ -3,8 +3,8 @@ import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * One file may import `pdfjs-dist`, and this is what holds it to that
- * (ADR 0035).
+ * One file per format may import the library behind it, and this is
+ * what holds it to that (ADR 0035, ADR 0042).
  *
  * The rule is easy to break by accident — a type import for
  * convenience, a constant borrowed from the library — and each break
@@ -22,9 +22,28 @@ import { describe, expect, it } from 'vitest';
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..', '..');
 const SKIP = new Set(['node_modules', 'target', 'dist', 'public', '.git', '.vitest', 'corpus']);
 const CODE = /\.(ts|mts|js|mjs|svelte)$/;
-const ADAPTER = join('apps', 'desktop', 'src', 'lib', 'paged', 'engines', 'pdfjs.ts');
-const PORT = join('apps', 'desktop', 'src', 'lib', 'paged', 'engine.ts');
-const SELF = join('apps', 'desktop', 'src', 'lib', 'paged', 'single-import.test.ts');
+const PAGED = join('apps', 'desktop', 'src', 'lib', 'paged');
+const PORT = join(PAGED, 'engine.ts');
+const SELF = join(PAGED, 'single-import.test.ts');
+const ADAPTER = join(PAGED, 'engines', 'pdfjs.ts');
+
+/**
+ * Each library a page engine is built on, and the only files that may
+ * name it (ADR 0042). A format is one adapter here and one line in the
+ * registry, and this table is what keeps it that way.
+ */
+const LIBRARIES = [
+  {
+    package: 'pdfjs-dist',
+    adapters: [ADAPTER],
+    plugin: join('apps', 'desktop', 'pdfjs-assets.ts'),
+  },
+  {
+    package: '@silurus/ooxml',
+    adapters: [join(PAGED, 'engines', 'silurus-docx.ts')],
+    plugin: join('apps', 'desktop', 'office-assets.ts'),
+  },
+];
 
 /** Every source file in the workspace, as paths relative to the root. */
 function sources(dir: string, inSrc: boolean, into: string[]): string[] {
@@ -47,31 +66,48 @@ function imports(file: string): string[] {
   return found.map((match) => match[1] as string);
 }
 
-describe('the pdf.js adapter is the only file that imports pdfjs-dist', () => {
-  const files = sources(ROOT, false, []);
+describe.each(LIBRARIES)(
+  '$package is imported only by its adapters',
+  ({ package: name, adapters, plugin }) => {
+    const files = sources(ROOT, false, []);
 
-  it('finds the source tree it is meant to be walking', () => {
-    // A walk that silently found nothing would pass every other test
-    // here, which is the one way this file could stop doing its job.
-    expect(files).toContain(ADAPTER);
-    expect(files).toContain(PORT);
-    expect(files.length).toBeGreaterThan(50);
-  });
+    it('finds the source tree it is meant to be walking', () => {
+      // A walk that silently found nothing would pass every other test
+      // here, which is the one way this file could stop doing its job.
+      for (const adapter of adapters) expect(files).toContain(adapter);
+      expect(files).toContain(PORT);
+      expect(files.length).toBeGreaterThan(50);
+    });
 
-  it('is imported nowhere else', () => {
-    const importing = files.filter((file) =>
-      imports(file).some((specifier) => specifier.startsWith('pdfjs-dist')),
-    );
-    expect(importing).toEqual([ADAPTER]);
-  });
+    it('is imported nowhere else', () => {
+      const importing = files.filter((file) =>
+        imports(file).some((specifier) => specifier === name || specifier.startsWith(`${name}/`)),
+      );
+      expect(importing.sort()).toEqual([...adapters].sort());
+    });
 
-  it('leaves no pdf.js type in the port itself', () => {
-    // The port is what the shell is allowed to know, and it is written
-    // to be satisfiable by PDFium too. A pdf.js type in it would make it
-    // a description of one library rather than of PDF viewing.
-    expect(readFileSync(join(ROOT, PORT), 'utf8')).not.toMatch(/pdfjs-dist/);
-  });
+    it('leaves no library type in the port itself', () => {
+      // The port is what the shell is allowed to know, and it is written
+      // to be satisfiable by more than one library. A library's type in it
+      // would make it a description of that library rather than of paged
+      // documents.
+      expect(readFileSync(join(ROOT, PORT), 'utf8')).not.toContain(name);
+    });
 
+    it('walks past the build plumbing, which is allowed to name it', () => {
+      // Naming the exemption here rather than in `SKIP` keeps it visible.
+      expect(readFileSync(join(ROOT, plugin), 'utf8')).toContain(name);
+      expect(files).not.toContain(plugin);
+      expect(plugin.split(sep)).not.toContain('src');
+      // This file names the packages all over, and is the enforcement
+      // rather than a use of them; it passes only because it imports none.
+      expect(files).toContain(SELF);
+      expect(imports(SELF).filter((s) => s.startsWith(name))).toEqual([]);
+    });
+  },
+);
+
+describe('the pdf.js adapter', () => {
   it('imports from the library rather than from its viewer', () => {
     // `pdfjs-dist/web/` is the bundled viewer, and it is how a PDF's own
     // JavaScript would come back: scripting runs in `pdf.sandbox.mjs`,
@@ -83,17 +119,5 @@ describe('the pdf.js adapter is the only file that imports pdfjs-dist', () => {
     for (const specifier of specifiers) {
       expect(specifier).toMatch(/^pdfjs-dist(\/build\/.+)?$/);
     }
-  });
-
-  it('walks past the build plumbing, which is allowed to name it', () => {
-    // Naming the exemption here rather than in `SKIP` keeps it visible.
-    const plugin = join('apps', 'desktop', 'pdfjs-assets.ts');
-    expect(readFileSync(join(ROOT, plugin), 'utf8')).toContain('pdfjs-dist');
-    expect(files).not.toContain(plugin);
-    expect(plugin.split(sep)).not.toContain('src');
-    // This file names the package all over, and is the enforcement
-    // rather than a use of it; it passes only because it imports none.
-    expect(files).toContain(SELF);
-    expect(imports(SELF).filter((s) => s.startsWith('pdfjs-dist'))).toEqual([]);
   });
 });

@@ -1,12 +1,13 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
+import { officeAssets } from './office-assets.ts';
 import { pdfjsAssets } from './pdfjs-assets.ts';
 
 const host = process.env.TAURI_DEV_HOST;
 const platform = process.env.TAURI_ENV_PLATFORM;
 
 export default defineConfig({
-  plugins: [svelte(), pdfjsAssets()],
+  plugins: [svelte(), pdfjsAssets(), officeAssets()],
   // pdf.js ships two builds and this app needs the transpiled one: the
   // modern build calls `Map.prototype.getOrInsertComputed`, and the
   // WKWebView that comes with macOS does not have it, so every page

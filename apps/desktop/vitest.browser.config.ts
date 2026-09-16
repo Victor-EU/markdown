@@ -1,11 +1,12 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
+import { officeAssets } from './office-assets.ts';
 import { pdfjsAssets } from './pdfjs-assets.ts';
 
 /** The shell's components and rune stores, in both engines. */
 export default defineConfig({
-  plugins: [svelte(), pdfjsAssets()],
+  plugins: [svelte(), pdfjsAssets(), officeAssets()],
   // The same alias `vite.config.ts` sets, and here for a reason worth
   // saying out loud: Playwright's WebKit is newer than the one macOS
   // ships, so the modern build passes every test here and fails on a
@@ -46,7 +47,16 @@ export default defineConfig({
     // up front, which is also what keeps it from being *discovered*
     // mid-run — that reloads the page under whatever else is running,
     // and takes half a dozen unrelated files down with it.
-    exclude: ['pdfjs-dist', 'pdfjs-dist/legacy/build/pdf.mjs'],
+    exclude: [
+      'pdfjs-dist',
+      'pdfjs-dist/legacy/build/pdf.mjs',
+      // The Office engine is the same case (ADR 0042): prebuilt chunks
+      // and two WebAssembly parsers it finds by URL, which `office-assets.ts`
+      // copies out and the adapters name. Nothing here to pre-bundle.
+      '@silurus/ooxml/docx',
+      '@silurus/ooxml/pptx',
+      '@silurus/ooxml/math',
+    ],
   },
   test: {
     name: 'desktop-browser',

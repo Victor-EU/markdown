@@ -1,6 +1,8 @@
 # ADR 0042: Viewing Word and PowerPoint files
 
-Status: proposed, 2026-09-16. Scoped, not built. The research and the
+Status: accepted, 2026-09-16; being built on the `office-viewing` branch,
+one commit per work package. What building it changed is at the end,
+under "As built". The research and the
 spike that chose the library are in [docs/office-viewing.md](../office-viewing.md)
 and `spikes/office-viewing/`; this is the plan for putting it in, in the
 shape of ADR 0035, which it leans on for everything.
@@ -343,3 +345,49 @@ keeps the PDF's.
 | Memory on a long deck | The bench's 100-slide deck; `getResourceMetrics()` for the number |
 | The worker under WebView2 | `worker-src 'self' blob:`; no Windows machine here, so it ships on the strength of the spec |
 | A document with a font neither installed nor shimmed | Drift from Word's pagination, as any renderer without the font; said plainly in the docs rather than hidden |
+
+## As built
+
+**WP 1, the rename.** A serde alias on the `Paged` variant, the plan's
+way of reading a 0.2.0 session, made specta split `Restore` and the two
+commands carrying it into a serialize half and a deserialize half —
+exactly the trap ADR 0035 walked around once. So the old word is read
+forward in `state.rs`'s `read` instead: a `kind` of `pdf` becomes
+`paged` before parsing, and the lenient reader does the same before it
+decides what to drop. One test for it, beside the one for unknown kinds.
+
+**WP 2, the registry.** Two knobs on `WorkspaceOptions` rather than the
+one the plan drew: `formats` (the list, with the registry as default, so
+a test can add a fake deck format) and `pageEngines` (by format id, so a
+test still hands in a dozen-line fake the way it handed in one). The
+engines' lazy thunks live beside the list rather than in it, because the
+list is data the shell and the tests read and the thunks are code only a
+Tauri build runs. The port's growth callback went on `open`'s options
+(`onPages`) rather than as a subscription on the document, which is one
+closure for an adapter to call and nothing to unsubscribe; the document
+model turns it into `complete`, a `watchPages` for the view and a
+`whenLaidOut` for Find. A place asked for past the pages there are is
+kept and gone to when they arrive.
+
+**WP 3, docx.** Three things the bundle taught that the probes had not.
+The library sizes the canvas's CSS box as well as its bitmap, from a
+width and a device ratio; handed the port's already-multiplied scale
+with a ratio of one, it drew every page twice its size in the first
+bundle. The adapter now splits the scale back into the two and restores
+the box the view set. A file that is not a zip at all fails inside
+layout ("page size must be positive") rather than at the container, so
+the stage is not something to sort failures by: a password and a limit
+are named, a worker that never answered is `unavailable`, and anything
+else a failed load can be is `corrupt`. And the status line written when
+a file opens is a snapshot, which for a document still being laid out
+said "1 page" under a bar reading "Page 1 of 41"; it now says "1 page…"
+and is said again, with the final count, when the layout is done.
+
+What the bundle confirmed: the worker and the WebAssembly load under the
+policy as written plus `worker-src 'self' blob:`; an agent's
+`open_document` over MCP opens a docx by the same road as a PDF; page
+one of the 41-page thesis is on screen within a second, with "of 15"
+growing to "of 41" over the next four. The `.wasm` files reach the
+bundle through `office-assets.ts` and the package's own `exports` map
+does not expose its manifest, so the plugin finds the package root from
+an entry it does expose.

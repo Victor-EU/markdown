@@ -532,13 +532,17 @@ describe('pages that arrive as they are laid out (ADR 0042)', () => {
     const paged = workspace.activePaged;
     expect(paged?.pages).toBe(3);
     expect(paged?.complete).toBe(false);
-    expect(workspace.status).toBe('long.pdf · 3 pages');
+    expect(workspace.status).toBe('long.pdf · 3 pages…');
     growing.grow[0]?.();
     expect(paged?.pages).toBe(6);
     expect(paged?.complete).toBe(false);
     growing.grow[1]?.();
     expect(paged?.pages).toBe(9);
     expect(paged?.complete).toBe(true);
+    // The bar is told the final count, since nothing has replaced what
+    // it said when the file opened.
+    await until(() => workspace.status === 'long.pdf · 9 pages');
+    expect(workspace.status).toBe('long.pdf · 9 pages');
   });
 
   it('lays out the new pages under the old ones and goes where the reader was waiting to go', async () => {
