@@ -592,7 +592,7 @@ describe('pages that arrive as they are laid out (ADR 0042)', () => {
 describe('a format of its own (ADR 0042)', () => {
   /** A deck, the way WP 4 will register one, with the fake behind it. */
   const DECKS: readonly PagedFormat[] = [
-    ...FORMATS,
+    ...FORMATS.filter((format) => format.id !== 'pptx'),
     { id: 'pptx', extensions: ['pptx'], unit: 'slide', noun: 'deck', filter: 'Office documents' },
   ];
 

@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { FORMATS, formatOf, openFilters, type PagedFormat } from './formats.ts';
 
-/** The registry with a second format in it, the shape WP 4 adds. */
-const WITH_DECKS: readonly PagedFormat[] = [
-  ...FORMATS,
-  { id: 'pptx', extensions: ['pptx'], unit: 'slide', noun: 'deck', filter: 'Office documents' },
-];
+/** The registry as it stands: three formats, two sharing a filter. */
+const WITH_DECKS: readonly PagedFormat[] = FORMATS;
 
 describe('the format a path names (ADR 0042)', () => {
   it('reads the extension, whatever its case', () => {
@@ -22,7 +19,6 @@ describe('the format a path names (ADR 0042)', () => {
     expect(formatOf('/a/pdf')).toBeNull();
     expect(formatOf('/a/paper.pdf.md')).toBeNull();
     expect(formatOf('/a.b/paper')).toBeNull();
-    expect(formatOf('/a/deck.pptx')).toBeNull();
   });
 });
 

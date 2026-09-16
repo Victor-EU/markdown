@@ -391,3 +391,21 @@ growing to "of 41" over the next four. The `.wasm` files reach the
 bundle through `office-assets.ts` and the package's own `exports` map
 does not expose its manifest, so the plugin finds the package root from
 an entry it does expose.
+
+**WP 4, pptx: the proof of the seam.** The package touched
+`engines/silurus-pptx.ts` and its test, one line each in the registry
+and the engines map, the single-import table, and two test fixtures
+that had assumed only PDF was registered. No Rust, no session shape, no
+pane, no Find, no status bar, no Cmd+O: those had learned "paged" and
+"slide" in WP 2 and needed nothing more. Two things the deck taught.
+The library answers a deck's geometry in EMU whatever width it was
+asked at, so the adapter divides by 12,700 for the slide's size and for
+each run's place, which is its shape's offset plus its own inside the
+shape. And a file that is not a zip at all does not fail: the library
+hands back a deck of one blank 16:9 slide, indistinguishable from a real
+one. So both adapters now fetch the bytes themselves and refuse anything
+whose first four are not a zip's before the library sees it — the same
+fetch the library would have made, over the same protocol — and a deck
+with no slides is refused as well. The bundle opened an agent's ten-slide
+deck and a twenty-slide 2011 one through `open_document`, "Slide 1 of
+10" in the bar, each slide at its own width down the pane.

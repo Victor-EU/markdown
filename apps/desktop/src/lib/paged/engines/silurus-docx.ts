@@ -78,6 +78,27 @@ export function failureOf(error: unknown): PagedFailure {
   return /timed? ?out|timeout|worker/i.test(message) ? 'unavailable' : 'corrupt';
 }
 
+/**
+ * The file's bytes, checked to be a zip before the library sees them.
+ *
+ * Every OOXML file is a zip, and the library makes what it can of what
+ * it is given: a text file wearing `.pptx` comes back as a deck of one
+ * blank slide, with nothing to say it was not one. Four bytes settle it
+ * before any of that. The fetch is the same the library would make —
+ * the asset protocol, allowed by `connect-src` — and the copy is gone
+ * once the parser has it.
+ */
+export async function ooxmlBytes(url: string): Promise<ArrayBuffer> {
+  const response = await fetch(url);
+  if (!response.ok) throw new PagedError('unavailable', `${response.status} fetching the file`);
+  const bytes = await response.arrayBuffer();
+  const head = new Uint8Array(bytes, 0, Math.min(4, bytes.byteLength));
+  if (head[0] !== 0x50 || head[1] !== 0x4b || head[2] !== 0x03 || head[3] !== 0x04) {
+    throw new PagedError('corrupt', 'not a zip archive, so not an Office file');
+  }
+  return bytes;
+}
+
 function translate(error: unknown): PagedError {
   if (error instanceof PagedError) return error;
   const message = error instanceof Error ? error.message : String(error);
@@ -141,7 +162,8 @@ export class SilurusDocxEngine implements PageEngine {
   async open(url: string, options?: OpenOptions): Promise<PagedDocument> {
     let doc: DocxDocument | null = null;
     try {
-      doc = await DocxDocument.load(url, {
+      const bytes = await ooxmlBytes(url);
+      doc = await DocxDocument.load(bytes, {
         math,
         wasmUrl: WASM_URL,
         progressiveLayout: true,

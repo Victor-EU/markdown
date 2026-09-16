@@ -40,7 +40,10 @@ const LIBRARIES = [
   },
   {
     package: '@silurus/ooxml',
-    adapters: [join(PAGED, 'engines', 'silurus-docx.ts')],
+    adapters: [
+      join(PAGED, 'engines', 'silurus-docx.ts'),
+      join(PAGED, 'engines', 'silurus-pptx.ts'),
+    ],
     plugin: join('apps', 'desktop', 'office-assets.ts'),
   },
 ];
