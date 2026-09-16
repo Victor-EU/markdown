@@ -9,7 +9,7 @@ const rows = $derived(workspace.outlineRows);
  * and not the same word (ADR 0035). The panel says which it is looking
  * for, because "No headings" over a PDF reads as a bug.
  */
-const nothing = $derived(workspace.activePdf ? 'No bookmarks' : 'No headings');
+const nothing = $derived(workspace.activePaged ? 'No bookmarks' : 'No headings');
 </script>
 
 <nav class="outline">

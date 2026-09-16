@@ -22,9 +22,9 @@ import { describe, expect, it } from 'vitest';
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..', '..');
 const SKIP = new Set(['node_modules', 'target', 'dist', 'public', '.git', '.vitest', 'corpus']);
 const CODE = /\.(ts|mts|js|mjs|svelte)$/;
-const ADAPTER = join('apps', 'desktop', 'src', 'lib', 'pdf', 'pdfjs.ts');
-const PORT = join('apps', 'desktop', 'src', 'lib', 'pdf', 'engine.ts');
-const SELF = join('apps', 'desktop', 'src', 'lib', 'pdf', 'single-import.test.ts');
+const ADAPTER = join('apps', 'desktop', 'src', 'lib', 'paged', 'engines', 'pdfjs.ts');
+const PORT = join('apps', 'desktop', 'src', 'lib', 'paged', 'engine.ts');
+const SELF = join('apps', 'desktop', 'src', 'lib', 'paged', 'single-import.test.ts');
 
 /** Every source file in the workspace, as paths relative to the root. */
 function sources(dir: string, inSrc: boolean, into: string[]): string[] {

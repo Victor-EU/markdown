@@ -143,7 +143,7 @@ describe('the menu bar', () => {
     expect(on(doc('edit'))).toBe(true);
     expect(on(doc('source'))).toBe(true);
     expect(on(doc('read'))).toBe(false);
-    expect(on({ activeTab: { id: 'p', kind: 'pdf' } })).toBe(false);
+    expect(on({ activeTab: { id: 'p', kind: 'paged' } })).toBe(false);
     expect(on({})).toBe(false);
   });
 

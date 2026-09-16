@@ -117,21 +117,21 @@ import { snapshotTime } from './history.ts';
 import { imageResolver } from './images.ts';
 import { proposeFileName, renamedFile, untitledNumber } from './naming.ts';
 import { bookmarkRow, headingRow, type OutlineRow, type OutlineTarget } from './outline.ts';
+import { PagedDoc } from './paged/document.svelte.ts';
+import { describePagedError, PagedError, type PageEngine } from './paged/engine.ts';
+import { stepHit } from './paged/find.ts';
+import { PagedSearch } from './paged/search.svelte.ts';
+import { PagedView, stepZoom } from './paged/view.ts';
 import { imageLink, isImagePath, pastePlan, plainPlan, toBase64 } from './paste.ts';
 import {
   basename,
   dirname,
   inside,
-  isPdfPath,
+  isPagedPath,
   resolvePath,
   shortenDir,
   tabLabels,
 } from './paths.ts';
-import { PdfDoc } from './pdf/document.svelte.ts';
-import { describePdfError, type PdfEngine, PdfError } from './pdf/engine.ts';
-import { stepHit } from './pdf/find.ts';
-import { PdfSearch } from './pdf/search.svelte.ts';
-import { PdfView, stepZoom } from './pdf/view.ts';
 import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
 import { FolderSearch } from './search.svelte.ts';
@@ -160,15 +160,15 @@ export interface Anchor {
 }
 
 /**
- * Where a PDF tab is scrolled, and how big it is drawn (ADR 0035).
+ * Where a paged tab is scrolled, and how big it is drawn (ADR 0035).
  *
  * Read mode's place is a source offset, which survives a change of
- * window width because a character does. A PDF's page does not move when
- * the window does, so its place is the page in front and how far down it
- * the top of the window sits.
+ * window width because a character does. A page does not move when the
+ * window does, so a paged document's place is the page in front and how
+ * far down it the top of the window sits — for a deck, the slide.
  */
-export interface PdfPlace {
-  /** One-based, the way a PDF numbers its own pages. */
+export interface PagedPlace {
+  /** One-based, the way a PDF numbers its own pages. A slide, for a deck. */
   page: number;
   /** How far down that page the top of the window is, from 0 to 1. */
   fraction: number;
@@ -176,7 +176,7 @@ export interface PdfPlace {
   zoom: number;
 }
 
-export const PDF_START: PdfPlace = { page: 1, fraction: 0, zoom: 1 };
+export const PAGED_START: PagedPlace = { page: 1, fraction: 0, zoom: 1 };
 
 /** One tab: a view onto a document, with the state that is per view. */
 export interface Tab {
@@ -184,9 +184,10 @@ export interface Tab {
   /**
    * What this tab shows. Settings open as a tab rather than a modal
    * (plan WP 1.9), so `docId` is empty for one of those and every
-   * document command asks `activeDoc` rather than `activeTab`. A PDF
-   * has a `docId` but no `Doc` behind it (ADR 0035), and the same
-   * discipline is what keeps every editing command off it.
+   * document command asks `activeDoc` rather than `activeTab`. A paged
+   * tab — a PDF, a Word document, a deck — has a `docId` but no `Doc`
+   * behind it (ADR 0035, ADR 0042), and the same discipline is what
+   * keeps every editing command off it.
    */
   kind: TabKind;
   docId: string;
@@ -195,18 +196,18 @@ export interface Tab {
   selection: EditorSelection;
   scrollTop: number;
   anchor: Anchor | null;
-  /** Where a PDF is scrolled. Null for every tab that is not one. */
-  pdf: PdfPlace | null;
+  /** Where a paged tab is scrolled. Null for every tab that is not one. */
+  paged: PagedPlace | null;
   /** Heading ids folded in Read mode, kept while the tab is open. */
   folded: string[];
 }
 
 interface ClosedTab {
   tab: Tab;
-  /** Null for a tab that was not a document: Settings, and a PDF. */
+  /** Null for a tab that was not a document: Settings, and a paged tab. */
   doc: Doc | null;
-  /** The open PDF, for a tab that was one. Reopening it re-uses it. */
-  pdf: PdfDoc | null;
+  /** The open paged document, for a tab that was one. Reopening re-uses it. */
+  paged: PagedDoc | null;
   index: number;
 }
 
@@ -258,7 +259,7 @@ export interface WorkspaceOptions {
    * in a browser build and in every test that does not open a PDF, and
    * then a PDF says so rather than opening a blank pane.
    */
-  pdfEngine?: PdfEngine;
+  pageEngine?: PageEngine;
   /**
    * Turns a local file path into a URL the webview may load, which under
    * Tauri is the asset protocol. Without it no local image loads, which
@@ -494,17 +495,17 @@ export class Workspace {
   fullScreen = $state(false);
   /** Whether the strip has to keep room for the window's own buttons. */
   lights: boolean = $derived(this.titleBar && !this.fullScreen);
-  /** The page of the PDF in front, one-based. Zero when there is none. */
-  pdfPage = $state(0);
+  /** The page of the paged document in front, one-based. Zero when there is none. */
+  pagedPage = $state(0);
   /**
-   * What the PDF in front is drawn at, in CSS pixels per point.
+   * What the paged document in front is drawn at, in CSS pixels per point.
    *
    * State rather than a read of the view, because the view is a plain
-   * object the status bar cannot watch: a cell that asked `pdfView`
+   * object the status bar cannot watch: a cell that asked `pagedView`
    * would draw 100% for the life of the tab however far the reader
    * zoomed.
    */
-  pdfZoom = $state(1);
+  pagedZoom = $state(1);
   outline = $state<OutlineEntry[]>([]);
   /** False while a long document is still being parsed in the background. */
   outlineComplete = $state(true);
@@ -554,15 +555,15 @@ export class Workspace {
 
   private readonly docs = new Map<string, Doc>();
   /**
-   * The open PDFs, keyed the way documents are (ADR 0035). A tab names
-   * one of these or one of those, and `kind` says which.
+   * The open paged documents, keyed the way documents are (ADR 0035). A
+   * tab names one of these or one of those, and `kind` says which.
    */
-  private readonly pdfs = new Map<string, PdfDoc>();
+  private readonly pagedDocs = new Map<string, PagedDoc>();
   /**
-   * Find over a PDF, which cannot be the editor's search: there is no
-   * buffer, only a list of runs per page (ADR 0035).
+   * Find over a paged document, which cannot be the editor's search:
+   * there is no buffer, only a list of runs per page (ADR 0035).
    */
-  readonly pdfSearch = new PdfSearch();
+  readonly pagedSearch = new PagedSearch();
   private closed = $state<ClosedTab[]>([]);
   private mounted: { view: EditorView; tab: Tab } | null = null;
   /** A change step asked for from Read mode, waiting for the editor. */
@@ -570,7 +571,7 @@ export class Workspace {
   /** The same, for a conflict: the widget only exists in the editor. */
   private pendingConflict = false;
   private reading: { view: ReadView; tab: Tab } | null = null;
-  private viewing: { view: PdfView; tab: Tab } | null = null;
+  private viewing: { view: PagedView; tab: Tab } | null = null;
   private untitledCount = 0;
   private epoch = $state(0);
   /** Writes in flight, per document, so two of them cannot race. */
@@ -607,8 +608,8 @@ export class Workspace {
 
   activeTab: Tab | null = $derived(this.tabs.find((tab) => tab.id === this.activeId) ?? null);
   activeDoc: Doc | null = $derived(this.activeTab ? this.docOf(this.activeTab) : null);
-  /** The PDF in front, or null when the tab in front is not one. */
-  activePdf: PdfDoc | null = $derived(this.activeTab ? this.pdfOf(this.activeTab) : null);
+  /** The paged document in front, or null when the tab in front is not one. */
+  activePaged: PagedDoc | null = $derived(this.activeTab ? this.pagedOf(this.activeTab) : null);
   /** What the Changes badge counts: changes the reader has not marked seen. */
   unreviewed: number = $derived(this.activeDoc?.changes.length ?? 0);
   /**
@@ -631,13 +632,13 @@ export class Workspace {
    * derivation already watch.
    */
   matches: MatchCount = $derived.by(() => {
-    if (this.activePdf) {
+    if (this.activePaged) {
       // `capped` is doing a second job here: the walk over the pages is
       // still going, so the total is a floor and the bar shows `n+`.
       return {
-        current: this.pdfSearch.at + 1,
-        total: this.pdfSearch.hits.length,
-        capped: this.pdfSearch.running,
+        current: this.pagedSearch.at + 1,
+        total: this.pagedSearch.hits.length,
+        capped: this.pagedSearch.running,
       };
     }
     const doc = this.activeDoc;
@@ -701,9 +702,9 @@ export class Workspace {
     return this.docs.get(tab.docId) ?? null;
   }
 
-  /** The PDF a tab shows, or null for a tab that is not one. */
-  pdfOf(tab: Tab): PdfDoc | null {
-    return this.pdfs.get(tab.docId) ?? null;
+  /** The paged document a tab shows, or null for a tab that is not one. */
+  pagedOf(tab: Tab): PagedDoc | null {
+    return this.pagedDocs.get(tab.docId) ?? null;
   }
 
   /**
@@ -715,7 +716,7 @@ export class Workspace {
    * 0035).
    */
   pathOf(tab: Tab): string | null {
-    return this.docOf(tab)?.path ?? this.pdfOf(tab)?.path ?? null;
+    return this.docOf(tab)?.path ?? this.pagedOf(tab)?.path ?? null;
   }
 
   doc(tab: Tab): Doc {
@@ -738,14 +739,14 @@ export class Workspace {
       if (isImagePath(path)) continue;
       // A PDF is read by another engine entirely and must not go near
       // `load`, which reads the file as text (ADR 0035).
-      if (isPdfPath(path)) await this.openPdf(path);
+      if (isPagedPath(path)) await this.openPaged(path);
       else await this.openPath(path);
     }
     if (images.length > 0) await this.importImages(images);
   }
 
   async openPath(path: string): Promise<boolean> {
-    if (isPdfPath(path)) return this.openPdf(path);
+    if (isPagedPath(path)) return this.openPaged(path);
     const open = this.tabs.find((tab) => this.pathOf(tab) === path);
     if (open) {
       this.activate(open.id);
@@ -808,20 +809,21 @@ export class Workspace {
   }
 
   /**
-   * Open a PDF (ADR 0035).
+   * Open a paged document: a PDF, and from ADR 0042 whatever the page
+   * engines read (ADR 0035).
    *
    * The road a document takes — `load`, `openDocument`, a `Doc` — is
    * exactly the one this must not: `openDocument` reads the file as
    * text, and a PDF read as text is mojibake with a progress bar. What
-   * `open_pdf` does instead is the two things a webview cannot ask for
-   * itself. It refuses a file too large to hold whole, which a PDF
-   * always is because range requests never engage over the asset
+   * `open_paged` does instead is the two things a webview cannot ask
+   * for itself. It refuses a file too large to hold whole, which these
+   * always are because range requests never engage over the asset
    * protocol. And it widens that protocol's scope to the folder — the
    * call `load` makes on the way past, and the one nothing else would
    * make for a file that never goes through it. Without it the protocol
    * answers 403 and the pane stays blank.
    */
-  async openPdf(path: string): Promise<boolean> {
+  async openPaged(path: string): Promise<boolean> {
     const open = this.tabs.find((tab) => this.pathOf(tab) === path);
     if (open) {
       this.activate(open.id);
@@ -832,72 +834,72 @@ export class Workspace {
       this.status = `${basename(path)} is open in another window`;
       return true;
     }
-    return (await this.takePdf(path)) !== null;
+    return (await this.takePaged(path)) !== null;
   }
 
   /**
-   * Take charge of a PDF and put it in a tab, without asking whether
-   * another window has it.
+   * Take charge of a paged document and put it in a tab, without asking
+   * whether another window has it.
    *
-   * The asking is what `openPdf` adds, and it is exactly what a tab
+   * The asking is what `openPaged` adds, and it is exactly what a tab
    * arriving from another window must not do: the window that sent it
    * has not written its session down yet, so the registry would still
    * say the file is over there and the tab would be turned away at the
    * door (design 6.5).
    */
-  private async takePdf(path: string, place: PdfPlace = PDF_START): Promise<Tab | null> {
-    const pdf = this.newPdf(path);
+  private async takePaged(path: string, place: PagedPlace = PAGED_START): Promise<Tab | null> {
+    const paged = this.newPaged(path);
     // Opened now rather than when the pane mounts, because this is the
     // reader's own gesture and the answer to it belongs in the status
     // bar: a page count, or the reason there is not one.
     try {
-      await pdf.ensure();
+      await paged.ensure();
     } catch (error) {
-      this.pdfs.delete(pdf.id);
-      this.status = describePdfError(error, basename(path));
+      this.pagedDocs.delete(paged.id);
+      this.status = describePagedError(error, basename(path));
       return null;
     }
-    const tab = this.insert(Workspace.blankTab('pdf', pdf.id, 'read'));
-    tab.pdf = { ...place };
+    const tab = this.insert(Workspace.blankTab('paged', paged.id, 'read'));
+    tab.paged = { ...place };
     this.remember(path);
-    this.status = `${pdf.label} · ${count(pdf.pages, 'page')}`;
+    this.status = `${paged.label} · ${count(paged.pages, 'page')}`;
     return tab;
   }
 
   /**
-   * A PDF this window is taking charge of, not yet opened.
+   * A paged document this window is taking charge of, not yet opened.
    *
-   * The closure is where the IPC lives, so that `PdfDoc` knows about the
+   * The closure is where the IPC lives, so that `PagedDoc` knows about the
    * port and nothing else — the same division `Doc` has, which is handed
    * its preview options rather than reaching for the workspace.
    */
-  private newPdf(path: string): PdfDoc {
-    const pdf = new PdfDoc({
+  private newPaged(path: string): PagedDoc {
+    const paged = new PagedDoc({
       path,
       load: async () => {
-        const { pdfEngine, assetUrl } = this.options;
+        const { pageEngine, assetUrl } = this.options;
         // A browser build has neither, and a test has whichever it
         // asked for. Saying so beats a pane that renders nothing.
-        if (!pdfEngine || !assetUrl) {
-          throw new PdfError('unavailable', 'no PDF engine in this build');
+        if (!pageEngine || !assetUrl) {
+          throw new PagedError('unavailable', 'no page engine in this build');
         }
-        const info = await this.options.commands.openPdf(path);
+        const info = await this.options.commands.openPaged(path);
         if (info.status === 'error') {
-          throw new PdfError(
+          throw new PagedError(
             info.error.kind === 'too_large' ? 'too_large' : 'unavailable',
             describeError(info.error),
           );
         }
-        // `open_pdf` widened the asset scope itself; recording it here
+        // `open_paged` widened the asset scope itself; recording it here
         // keeps a markdown document in the same folder from asking
         // again.
         const dir = dirname(path);
         if (dir !== '') this.allowed.add(dir);
-        return { document: await pdfEngine.open(assetUrl(path)), byteLen: info.data.byte_len };
+        return { document: await pageEngine.open(assetUrl(path)), byteLen: info.data.byte_len };
       },
     });
-    this.pdfs.set(pdf.id, pdf);
-    return pdf;
+    this.pagedDocs.set(paged.id, paged);
+    return paged;
   }
 
   async pickAndOpen(): Promise<void> {
@@ -1015,7 +1017,7 @@ export class Workspace {
       selection: EditorSelection.single(0),
       scrollTop: 0,
       anchor: null,
-      pdf: kind === 'pdf' ? { ...PDF_START } : null,
+      paged: kind === 'paged' ? { ...PAGED_START } : null,
       folded: [],
     };
   }
@@ -1057,16 +1059,16 @@ export class Workspace {
     // that a reader who comes straight back still gets a view built.
     this.unmount();
     this.unmountRead();
-    this.unmountPdf();
+    this.unmountPaged();
     this.epoch += 1;
     this.activeId = id;
     this.countNow();
     // A search is about one document, and a PDF's hits are page numbers
     // in *that* PDF (ADR 0035). Carrying them to the next tab would
     // count matches in a file nobody is looking at.
-    if (this.pdfSearch.hits.length > 0 || this.pdfSearch.running) {
-      this.pdfSearch.clear();
-      void this.runPdfSearch();
+    if (this.pagedSearch.hits.length > 0 || this.pagedSearch.running) {
+      this.pagedSearch.clear();
+      void this.runPagedSearch();
     }
     // The panel is about the document in front, so it follows it.
     if (this.sidebar && this.panel === 'history') void this.refreshHistory();
@@ -1101,20 +1103,20 @@ export class Workspace {
    */
   private remove(
     id: string,
-  ): { tab: Tab; doc: Doc | null; pdf: PdfDoc | null; index: number; alone: boolean } | null {
+  ): { tab: Tab; doc: Doc | null; paged: PagedDoc | null; index: number; alone: boolean } | null {
     const index = this.tabs.findIndex((tab) => tab.id === id);
     if (index === -1) return null;
     const tab = this.tabs[index] as Tab;
     const doc = this.docOf(tab);
-    const pdf = this.pdfOf(tab);
+    const paged = this.pagedOf(tab);
     const wasActive = this.activeId === tab.id;
     if (wasActive) {
       this.unmount();
       this.unmountRead();
-      this.unmountPdf();
+      this.unmountPaged();
     }
     this.tabs.splice(index, 1);
-    const held = doc?.id ?? pdf?.id ?? null;
+    const held = doc?.id ?? paged?.id ?? null;
     const alone = held !== null && !this.tabs.some((other) => other.docId === held);
     if (wasActive) {
       const next = this.tabs[Math.min(index, this.tabs.length - 1)];
@@ -1122,14 +1124,14 @@ export class Workspace {
       this.countNow();
     }
     this.touch();
-    return { tab, doc, pdf, index, alone };
+    return { tab, doc, paged, index, alone };
   }
 
   close(id: string): void {
     const gone = this.remove(id);
     if (gone === null) return;
-    const { tab, doc, pdf, index, alone } = gone;
-    this.closed = [{ tab: { ...tab }, doc, pdf, index }, ...this.closed].slice(0, CLOSED_LIMIT);
+    const { tab, doc, paged, index, alone } = gone;
+    this.closed = [{ tab: { ...tab }, doc, paged, index }, ...this.closed].slice(0, CLOSED_LIMIT);
     // Closing the last tab on a document is the strongest form of
     // leaving it, so autosave writes it (design 6.6) before it goes.
     const saved = alone && this.autosaveOnLeave(doc);
@@ -1137,11 +1139,11 @@ export class Workspace {
       this.docs.delete(doc.id);
       if (doc.path !== null) void this.options.commands.unwatch(doc.path);
     }
-    if (pdf) {
+    if (paged) {
       // The engine's copy of the file stays reachable while the tab is
       // in the reopen list; only the last tab on it gives it up, and
       // even then the list is what holds it (see `reopenClosed`).
-      this.status = `Closed ${pdf.label}`;
+      this.status = `Closed ${paged.label}`;
       return;
     }
     if (!doc) {
@@ -1170,12 +1172,12 @@ export class Workspace {
       // it starts one again.
       if (record.doc.path !== null) void this.options.commands.watch(record.doc.path);
     }
-    if (record.pdf) this.pdfs.set(record.pdf.id, record.pdf);
+    if (record.paged) this.pagedDocs.set(record.paged.id, record.paged);
     const tab: Tab = { ...record.tab, id: nextId('tab') };
     this.tabs.splice(Math.min(record.index, this.tabs.length), 0, tab);
     this.activate(tab.id);
     this.touch();
-    this.status = `Reopened ${record.doc?.label ?? record.pdf?.label ?? 'Settings'}`;
+    this.status = `Reopened ${record.doc?.label ?? record.paged?.label ?? 'Settings'}`;
   }
 
   /** Drag to reorder. Pinned tabs keep their block at the front of the strip. */
@@ -1248,8 +1250,8 @@ export class Workspace {
     if (!tab) return false;
     // A PDF moves too, and it moves differently: what travels is the
     // path, because there is no buffer to carry (ADR 0035).
-    const pdf = this.pdfOf(tab);
-    if (pdf) return this.movePdf(tab, pdf, dropped);
+    const paged = this.pagedOf(tab);
+    if (paged) return this.movePaged(tab, paged, dropped);
     const doc = this.docOf(tab);
     if (tab.kind !== 'document' || !doc) {
       this.status = 'Only a document or a PDF can be moved to another window';
@@ -1324,16 +1326,17 @@ export class Workspace {
    * and the window taking it in opens the file for itself — which is
    * also what keeps two windows from holding one engine document.
    */
-  private async movePdf(tab: Tab, pdf: PdfDoc, dropped: boolean): Promise<boolean> {
+  private async movePaged(tab: Tab, paged: PagedDoc, dropped: boolean): Promise<boolean> {
     // The live view holds the reader's place until it is asked, exactly
     // as a mounted editor holds a cursor.
-    const place = (this.viewing?.tab.id === tab.id ? this.pdfView?.place() : tab.pdf) ?? PDF_START;
+    const place =
+      (this.viewing?.tab.id === tab.id ? this.pagedView?.place() : tab.paged) ?? PAGED_START;
     const payload: TabMove = {
-      path: pdf.path,
+      path: paged.path,
       untitled_name: null,
       meta: null,
       // The fields that carry a buffer travel empty, and the other side
-      // never reads them: it sees a `.pdf` path and opens the file.
+      // never reads them: it sees a `.paged` path and opens the file.
       text: '',
       base: '',
       reviewed: '',
@@ -1353,9 +1356,9 @@ export class Workspace {
     // Given up here rather than left to the collector: the file is held
     // whole in memory and its pages as bitmaps, and the window that now
     // has it is opening its own copy.
-    this.pdfs.delete(pdf.id);
-    pdf.destroy();
-    this.status = `Moved ${pdf.label} to ${moved.data.created ? 'a new window' : 'the window under it'}`;
+    this.pagedDocs.delete(paged.id);
+    paged.destroy();
+    this.status = `Moved ${paged.label} to ${moved.data.created ? 'a new window' : 'the window under it'}`;
     return true;
   }
 
@@ -1386,8 +1389,8 @@ export class Workspace {
     // it does when the OS hands a file over and when a session is put
     // back (ADR 0035). One rule in three places, rather than a second
     // fact on the wire that could disagree with the first.
-    if (path !== null && isPdfPath(path)) {
-      const arrived = await this.takePdf(path, {
+    if (path !== null && isPagedPath(path)) {
+      const arrived = await this.takePaged(path, {
         page: Math.max(1, move.page ?? 1),
         fraction: 0,
         zoom: 1,
@@ -1564,7 +1567,7 @@ export class Workspace {
   }
 
   /**
-   * Put the PDF pane up on the tab in front (ADR 0035).
+   * Put the paged pane up on the tab in front (ADR 0035).
    *
    * The mirror of `mountRead`, and it guards the same way: a tab says
    * what it is showing, and everything that acts on a buffer asks
@@ -1572,83 +1575,83 @@ export class Workspace {
    * yet — a restored session opens none of them — so this is also where
    * one gets opened, and where the reason it would not is reported.
    */
-  async mountPdf(parent: HTMLElement): Promise<void> {
+  async mountPaged(parent: HTMLElement): Promise<void> {
     const tab = this.activeTab;
-    if (tab?.kind !== 'pdf' || this.viewing) return;
-    const pdf = this.pdfOf(tab);
-    if (!pdf) return;
-    if (!pdf.ready) {
+    if (tab?.kind !== 'paged' || this.viewing) return;
+    const paged = this.pagedOf(tab);
+    if (!paged) return;
+    if (!paged.ready) {
       try {
-        await pdf.ensure();
+        await paged.ensure();
       } catch (error) {
-        this.status = describePdfError(error, pdf.label);
+        this.status = describePagedError(error, paged.label);
         return;
       }
       // The reader may have moved on while the file was opening.
       if (this.activeTab?.id !== tab.id || this.viewing) return;
     }
-    const view = new PdfView({
+    const view = new PagedView({
       parent,
-      pdf,
-      place: tab.pdf ?? { ...PDF_START },
+      doc: paged,
+      place: tab.paged ?? { ...PAGED_START },
       onPlace: (place) => {
-        tab.pdf = place;
-        this.pdfPage = place.page;
-        this.pdfZoom = place.zoom;
+        tab.paged = place;
+        this.pagedPage = place.page;
+        this.pagedZoom = place.zoom;
       },
       onTrouble: (message) => {
         this.status = message;
       },
     });
     this.viewing = { view, tab };
-    this.pdfPage = view.page;
-    this.pdfZoom = view.scale;
+    this.pagedPage = view.page;
+    this.pagedZoom = view.scale;
   }
 
   /** Save the reader's place onto the tab and take the pane down. */
-  unmountPdf(): void {
+  unmountPaged(): void {
     const viewing = this.viewing;
     if (!viewing) return;
     const tab = this.tabs.find((other) => other.id === viewing.tab.id);
-    if (tab) tab.pdf = viewing.view.place();
+    if (tab) tab.paged = viewing.view.place();
     this.viewing = null;
     viewing.view.destroy();
-    this.pdfPage = 0;
-    this.pdfZoom = 1;
+    this.pagedPage = 0;
+    this.pagedZoom = 1;
     this.touch();
   }
 
-  get pdfView(): PdfView | null {
+  get pagedView(): PagedView | null {
     return this.viewing?.view ?? null;
   }
 
-  /** Cmd+= and Cmd+- over a PDF; the ladder is in `pdf/view.ts`. */
-  zoomPdf(delta: 1 | -1): void {
+  /** Cmd+= and Cmd+- over a paged document; the ladder is in `paged/view.ts`. */
+  zoomPaged(delta: 1 | -1): void {
     const tab = this.activeTab;
-    const view = this.pdfView;
-    if (!view || tab?.kind !== 'pdf') return;
+    const view = this.pagedView;
+    if (!view || tab?.kind !== 'paged') return;
     view.setZoom(stepZoom(view.scale, delta));
-    tab.pdf = view.place();
-    this.pdfZoom = view.scale;
+    tab.paged = view.place();
+    this.pagedZoom = view.scale;
     this.status = `${Math.round(view.scale * 100)}%`;
     this.touch();
   }
 
   /** Back to a point per pixel, which is the size the file was made at. */
-  resetPdfZoom(): void {
-    const view = this.pdfView;
+  resetPagedZoom(): void {
+    const view = this.pagedView;
     if (!view) return;
     view.setZoom(1);
     const tab = this.activeTab;
-    if (tab) tab.pdf = view.place();
-    this.pdfZoom = 1;
+    if (tab) tab.paged = view.place();
+    this.pagedZoom = 1;
     this.status = '100%';
     this.touch();
   }
 
   /** Go to a page, which is what a bookmark and the status bar both do. */
   goToPdfPage(page: number): void {
-    this.pdfView?.goTo(page);
+    this.pagedView?.goTo(page);
   }
 
   /** Save what Read mode knows onto its tab and drop it. */
@@ -2997,11 +3000,11 @@ export class Workspace {
    */
   openFind(replace: boolean): void {
     const tab = this.activeTab;
-    if (tab?.kind === 'pdf') {
+    if (tab?.kind === 'paged') {
       // No replace: a PDF is read here and never written. The bar drops
       // that row for a PDF rather than offering one that refuses.
       this.find = { ...this.find, open: true, replace: false };
-      void this.runPdfSearch();
+      void this.runPagedSearch();
       return;
     }
     if (tab?.kind !== 'document') return;
@@ -3023,8 +3026,8 @@ export class Workspace {
   closeFind(): void {
     if (!this.find.open) return;
     this.find = { ...this.find, open: false };
-    this.pdfSearch.clear();
-    this.pdfView?.setHits([], null);
+    this.pagedSearch.clear();
+    this.pagedView?.setHits([], null);
     this.pushQuery();
     this.focusEditor();
   }
@@ -3032,43 +3035,43 @@ export class Workspace {
   /** Change the query or a flag, and tell whichever view is searching. */
   updateFind(patch: Partial<FindState>): void {
     this.find = { ...this.find, ...patch };
-    if (this.activePdf) {
-      void this.runPdfSearch();
+    if (this.activePaged) {
+      void this.runPagedSearch();
       return;
     }
     this.pushQuery();
   }
 
   /**
-   * Search the PDF in front, and mark what is found.
+   * Search the paged document in front, and mark what is found.
    *
    * Every keystroke starts a new walk and abandons the one before it,
-   * which is what `PdfSearch` counts generations for. The marks follow
+   * which is what `PagedSearch` counts generations for. The marks follow
    * the hits as they arrive, so a long document fills in rather than
    * waiting.
    */
-  private async runPdfSearch(): Promise<void> {
-    const pdf = this.activePdf;
-    if (!pdf) return;
+  private async runPagedSearch(): Promise<void> {
+    const paged = this.activePaged;
+    if (!paged) return;
     const { query, caseSensitive, wholeWord, regexp } = this.find;
     if (!this.find.open || query === '') {
-      this.pdfSearch.clear();
-      this.pdfView?.setHits([], null);
+      this.pagedSearch.clear();
+      this.pagedView?.setHits([], null);
       return;
     }
     try {
-      await this.pdfSearch.run(pdf, query, { caseSensitive, wholeWord, regexp });
+      await this.pagedSearch.run(paged, query, { caseSensitive, wholeWord, regexp });
     } catch (error) {
       // A search that dies quietly reads as a document with no matches
       // in it, which is a worse lie than saying what went wrong.
-      this.status = `Cannot search ${pdf.label} · ${
+      this.status = `Cannot search ${paged.label} · ${
         error instanceof Error ? error.message : String(error)
       }`;
       return;
     }
-    if (this.activePdf !== pdf || !this.pdfSearch.matches(query)) return;
-    if (pdf.failure !== null) this.status = `Some pages would not be read · ${pdf.failure}`;
-    this.pdfView?.setHits(this.pdfSearch.hits, null);
+    if (this.activePaged !== paged || !this.pagedSearch.matches(query)) return;
+    if (paged.failure !== null) this.status = `Some pages would not be read · ${paged.failure}`;
+    this.pagedView?.setHits(this.pagedSearch.hits, null);
   }
 
   /** The selection, when it is one line of it: what Cmd+F starts with. */
@@ -3103,7 +3106,7 @@ export class Workspace {
 
   /** Step to the next match, or the previous one. Wraps, as every editor does. */
   findStep(forward: boolean): boolean {
-    if (this.activePdf) return this.stepPdfHit(forward);
+    if (this.activePaged) return this.stepPagedHit(forward);
     const view = this.mounted?.view;
     if (!view || this.find.query === '') return false;
     const moved = forward ? findNext(view) : findPrevious(view);
@@ -3112,16 +3115,16 @@ export class Workspace {
   }
 
   /** Enter in the find bar over a PDF: the next hit, and the page it is on. */
-  private stepPdfHit(forward: boolean): boolean {
-    const view = this.pdfView;
-    const { hits } = this.pdfSearch;
+  private stepPagedHit(forward: boolean): boolean {
+    const view = this.pagedView;
+    const { hits } = this.pagedSearch;
     if (hits.length === 0) {
       if (this.find.query !== '') this.status = `No match for ${this.find.query}`;
       return false;
     }
-    const at = stepHit(hits, this.pdfSearch.at, view?.page ?? 1, forward);
+    const at = stepHit(hits, this.pagedSearch.at, view?.page ?? 1, forward);
     if (at === -1) return false;
-    this.pdfSearch.at = at;
+    this.pagedSearch.at = at;
     const hit = hits[at];
     if (!hit || !view) return false;
     view.goToHit(hit);
@@ -3657,8 +3660,8 @@ export class Workspace {
    * somewhere else, which is why the destination is a union.
    */
   outlineRows: OutlineRow[] = $derived.by(() => {
-    const pdf = this.activePdf;
-    if (pdf) return pdf.outline.map(bookmarkRow);
+    const paged = this.activePaged;
+    if (paged) return paged.outline.map(bookmarkRow);
     return this.outline.map(headingRow);
   });
 
@@ -3735,11 +3738,11 @@ export class Workspace {
       // A PDF is a file and nothing else, so its entry is a path. It
       // still needs one: `TabState.document` is an index into this list
       // (ADR 0035).
-      const pdf = this.pdfOf(tab);
-      if (pdf) {
-        if (!at.has(pdf.id)) {
-          at.set(pdf.id, documents.length);
-          documents.push({ path: pdf.path, untitled: null });
+      const paged = this.pagedOf(tab);
+      if (paged) {
+        if (!at.has(paged.id)) {
+          at.set(paged.id, documents.length);
+          documents.push({ path: paged.path, untitled: null });
         }
         continue;
       }
@@ -3770,7 +3773,7 @@ export class Workspace {
           anchor: tab.anchor?.offset ?? 0,
           // The page, and not the fraction down it: the page is where
           // the reader was, and landing at the top of it is honest.
-          page: tab.pdf?.page ?? null,
+          page: tab.paged?.page ?? null,
           folded: [...tab.folded],
         })),
       folder: this.folder.root,
@@ -3803,36 +3806,36 @@ export class Workspace {
     const docs: (Doc | null)[] = [];
     // In step with `docs`, because `TabState.document` is one index into
     // one list and a PDF has an entry in it like anything else.
-    const pdfs: (PdfDoc | null)[] = [];
+    const pagedDocs: (PagedDoc | null)[] = [];
     const gone: string[] = [];
     for (const entry of content.documents ?? []) {
       // A PDF is intercepted here as well as in `openPaths`, because
       // `restoreDoc` goes through `load`, which reads a file as text
       // (ADR 0035). Nothing is opened yet: the file is opened when a
       // pane mounts on it, so a session of PDFs costs one.
-      if (entry.path && isPdfPath(entry.path)) {
+      if (entry.path && isPagedPath(entry.path)) {
         docs.push(null);
-        pdfs.push(this.newPdf(entry.path));
+        pagedDocs.push(this.newPaged(entry.path));
         continue;
       }
       const doc = await this.restoreDoc(entry);
       if (doc === null && entry.path) gone.push(basename(entry.path));
       docs.push(doc);
-      pdfs.push(null);
+      pagedDocs.push(null);
     }
     let active: string | null = null;
     for (const saved of content.tabs ?? []) {
       let tab: Tab;
       if (saved.kind === 'settings') {
         tab = this.openSettings();
-      } else if (saved.kind === 'pdf') {
-        const pdf = pdfs[saved.document ?? 0];
-        if (!pdf) continue;
-        tab = this.insert(Workspace.blankTab('pdf', pdf.id, 'read'), undefined, false);
+      } else if (saved.kind === 'paged') {
+        const paged = pagedDocs[saved.document ?? 0];
+        if (!paged) continue;
+        tab = this.insert(Workspace.blankTab('paged', paged.id, 'read'), undefined, false);
         // The page the reader was on, and the top of it. The file has
         // not been opened yet, so there is nothing to clamp against;
         // the pane does that when it knows how many pages there are.
-        tab.pdf = { page: Math.max(1, saved.page ?? 1), fraction: 0, zoom: 1 };
+        tab.paged = { page: Math.max(1, saved.page ?? 1), fraction: 0, zoom: 1 };
       } else {
         const doc = docs[saved.document ?? 0];
         if (!doc) continue;
@@ -3984,8 +3987,8 @@ export class Workspace {
    * is the discipline `TabKind` exists for (ADR 0035).
    */
   zoom(steps: number): void {
-    if (this.activeTab?.kind === 'pdf') {
-      this.zoomPdf(steps > 0 ? 1 : -1);
+    if (this.activeTab?.kind === 'paged') {
+      this.zoomPaged(steps > 0 ? 1 : -1);
       return;
     }
     const size = zoomed(this.applied.size, steps);
@@ -3998,8 +4001,8 @@ export class Workspace {
   }
 
   resetZoom(): void {
-    if (this.activeTab?.kind === 'pdf') {
-      this.resetPdfZoom();
+    if (this.activeTab?.kind === 'paged') {
+      this.resetPagedZoom();
       return;
     }
     if (this.applied.size !== DEFAULT_SIZE) this.setSize(DEFAULT_SIZE);
@@ -4207,13 +4210,13 @@ export class Workspace {
     // reason to write the session down and would set the timer again.
     this.unmount();
     this.unmountRead();
-    this.unmountPdf();
+    this.unmountPaged();
     // A PDF holds its file whole and its pages as bitmaps, and the
     // engine's worker outlives any one of them (ADR 0035).
-    for (const pdf of this.pdfs.values()) pdf.destroy();
-    this.pdfs.clear();
-    for (const record of this.closed) record.pdf?.destroy();
-    this.options.pdfEngine?.destroy();
+    for (const paged of this.pagedDocs.values()) paged.destroy();
+    this.pagedDocs.clear();
+    for (const record of this.closed) record.paged?.destroy();
+    this.options.pageEngine?.destroy();
     for (const timer of [this.countTimer, this.changeTimer, this.sessionTimer]) {
       if (timer !== null) clearTimeout(timer);
     }

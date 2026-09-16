@@ -12,7 +12,7 @@ const find = $derived(workspace.find);
  * A PDF is read here and never written (ADR 0035), so the bar drops
  * the replace row rather than offering one that refuses.
  */
-const readOnly = $derived(workspace.activePdf !== null);
+const readOnly = $derived(workspace.activePaged !== null);
 const matches = $derived(workspace.matches);
 /**
  * Its own derivation, not `find.open`: the whole find state is replaced

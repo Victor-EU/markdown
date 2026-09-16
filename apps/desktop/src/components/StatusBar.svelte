@@ -7,7 +7,7 @@ import type { Workspace } from '../lib/workspace.svelte.ts';
 let { workspace }: { workspace: Workspace } = $props();
 
 const doc = $derived(workspace.activeDoc);
-const pdf = $derived(workspace.activePdf);
+const paged = $derived(workspace.activePaged);
 const mode = $derived(workspace.activeTab?.mode ?? null);
 const cursor = $derived.by(() => {
   if (!doc || mode !== 'source') return null;
@@ -67,16 +67,16 @@ const endpoint = $derived(
 
 <div class="bar status">
   <!--
-    A PDF has none of the cells beside it: no words to count, no format
-    to name, nothing unsaved. What it has is where the reader is in it
-    (ADR 0035), which is the one fact this bar can tell them that the
-    page itself cannot.
+    A paged document has none of the cells beside it: no words to count,
+    no format to name, nothing unsaved. What it has is where the reader
+    is in it (ADR 0035), which is the one fact this bar can tell them
+    that the page itself cannot.
   -->
-  {#if pdf}
+  {#if paged}
     <span class="cell">
-      {workspace.pdfPage > 0 ? `Page ${workspace.pdfPage} of ${pdf.pages}` : `${pdf.pages} pages`}
+      {workspace.pagedPage > 0 ? `Page ${workspace.pagedPage} of ${paged.pages}` : `${paged.pages} pages`}
     </span>
-    <span class="cell">{Math.round(workspace.pdfZoom * 100)}%</span>
+    <span class="cell">{Math.round(workspace.pagedZoom * 100)}%</span>
   {/if}
   {#if doc}
     <span class="cell">{workspace.words} words</span>

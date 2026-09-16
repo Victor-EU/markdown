@@ -23,7 +23,7 @@ import type { TextRun } from './engine.ts';
  * difference between a find that helps and one that says "somewhere
  * around here".
  */
-export interface PdfHit {
+export interface PagedHit {
   /** One-based, the way a PDF numbers its own pages. */
   page: number;
   /** The first run the match touches, as an index into the page's list. */
@@ -93,10 +93,10 @@ function runAt(starts: readonly number[], at: number): number {
  * A zero-width match — `a*` against a page with no `a` in it — would
  * otherwise loop forever, so the walk always moves on.
  */
-export function hitsInPage(runs: readonly TextRun[], page: number, pattern: RegExp): PdfHit[] {
+export function hitsInPage(runs: readonly TextRun[], page: number, pattern: RegExp): PagedHit[] {
   if (runs.length === 0) return [];
   const { text, starts } = pageString(runs);
-  const hits: PdfHit[] = [];
+  const hits: PagedHit[] = [];
   const walker = new RegExp(
     pattern.source,
     pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`,
@@ -128,7 +128,7 @@ export function hitsInPage(runs: readonly TextRun[], page: number, pattern: RegE
  * next match is the one after what they can see.
  */
 export function stepHit(
-  hits: readonly PdfHit[],
+  hits: readonly PagedHit[],
   current: number,
   page: number,
   forward: boolean,
@@ -142,7 +142,7 @@ export function stepHit(
     return at === -1 ? 0 : at;
   }
   for (let at = hits.length - 1; at >= 0; at--) {
-    if ((hits[at] as PdfHit).page <= page) return at;
+    if ((hits[at] as PagedHit).page <= page) return at;
   }
   return hits.length - 1;
 }

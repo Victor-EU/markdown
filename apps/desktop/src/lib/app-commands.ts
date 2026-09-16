@@ -24,7 +24,7 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
    * rather than a buffer (ADR 0035). Replace is not shared, because a
    * PDF is read here and never written.
    */
-  const canFind = () => workspace.activeDoc !== null || workspace.activePdf !== null;
+  const canFind = () => workspace.activeDoc !== null || workspace.activePaged !== null;
   return [
     {
       id: 'file.new',
@@ -135,7 +135,7 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       // (ADR 0035). Settings is the tab that stays where it is.
       enabled: () => {
         const kind = workspace.activeTab?.kind;
-        return kind === 'document' || kind === 'pdf';
+        return kind === 'document' || kind === 'paged';
       },
       run: () => workspace.tearOffActive(),
     },

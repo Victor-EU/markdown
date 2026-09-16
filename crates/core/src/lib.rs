@@ -21,8 +21,8 @@ pub use assets::{AssetWrite, copy_asset, image_type, store_asset};
 pub use blocks::{agent_changes, block_diff};
 pub use diff::{apply, edits, merge3};
 pub use document::{
-    Document, DocumentMeta, EDITABLE_BYTES, Error, FileFormat, OPEN_BYTES, PDF_BYTES, PdfInfo,
-    ReadOnly, SaveResult, convert_to_utf8, encode, hash_bytes, read_document, read_pdf_info,
+    Document, DocumentMeta, EDITABLE_BYTES, Error, FileFormat, OPEN_BYTES, PAGED_BYTES, PagedInfo,
+    ReadOnly, SaveResult, convert_to_utf8, encode, hash_bytes, read_document, read_paged_info,
     save_document,
 };
 pub use eol::Eol;

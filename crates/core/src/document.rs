@@ -31,16 +31,18 @@ const UTF8: &str = "utf-8";
 pub const EDITABLE_BYTES: u64 = 10_000_000;
 pub const OPEN_BYTES: u64 = 100_000_000;
 
-/// How large a PDF the app will open (ADR 0035).
+/// How large a paged file — a PDF, a Word document, a deck — the app
+/// will open (ADR 0035, ADR 0042).
 ///
-/// Lower than [`OPEN_BYTES`] because a PDF costs more than its own size.
+/// Lower than [`OPEN_BYTES`] because such a file costs more than its
+/// own size.
 /// Range requests never engage over the asset protocol — pdf.js only
 /// asks for a byte range of an `http(s)` URL, and the protocol only
 /// offers ranges to a request that already carried one — so the file
 /// arrives whole, and the renderer's own structures sit on top of it.
 /// Sixty-four megabytes is past anything a markdown reader meets beside
 /// a document it was handed.
-pub const PDF_BYTES: u64 = 64_000_000;
+pub const PAGED_BYTES: u64 = 64_000_000;
 
 /// Why a document cannot be edited, for the one banner that says so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -226,14 +228,15 @@ pub fn read_document(path: &Path) -> Result<Document, Error> {
     })
 }
 
-/// What the shell learns about a PDF before it hands one to the renderer.
+/// What the shell learns about a paged file before it hands one to a
+/// page engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-pub struct PdfInfo {
+pub struct PagedInfo {
     #[specta(type = specta_typescript::Number)]
     pub byte_len: u64,
 }
 
-/// Look at a PDF without reading it.
+/// Look at a paged file without reading it.
 ///
 /// The bytes themselves go to the webview over the asset protocol, which
 /// is the same road a document's images already travel and the reason
@@ -242,22 +245,22 @@ pub struct PdfInfo {
 /// and whether it is one this app will take on.
 ///
 /// # Errors
-/// Fails when the file cannot be read, or is over [`PDF_BYTES`].
-pub fn read_pdf_info(path: &Path) -> Result<PdfInfo, Error> {
+/// Fails when the file cannot be read, or is over [`PAGED_BYTES`].
+pub fn read_paged_info(path: &Path) -> Result<PagedInfo, Error> {
     // Asked of the file rather than of what was read, exactly as
     // `read_document` asks: refusing a large file should not begin by
     // pulling it into memory.
     let size = std::fs::metadata(path)
         .map_err(|e| read_error(path, &e))?
         .len();
-    if size > PDF_BYTES {
+    if size > PAGED_BYTES {
         return Err(Error::TooLarge {
             path: path.to_path_buf(),
             byte_len: size,
-            limit: PDF_BYTES,
+            limit: PAGED_BYTES,
         });
     }
-    Ok(PdfInfo { byte_len: size })
+    Ok(PagedInfo { byte_len: size })
 }
 
 /// Why a file just read cannot be edited (design 8). Encoding first: a
@@ -428,7 +431,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("paper.pdf");
         std::fs::write(&path, b"%PDF-1.7\n").unwrap();
-        let info = read_pdf_info(&path).expect("look");
+        let info = read_paged_info(&path).expect("look");
         assert_eq!(info.byte_len, 9);
     }
 
@@ -439,14 +442,14 @@ mod tests {
         let file = std::fs::File::create(&path).unwrap();
         // Sparse: the point is that the size is asked of the file rather
         // than of what was read, so nothing here reads 64 MB.
-        file.set_len(PDF_BYTES + 1).unwrap();
+        file.set_len(PAGED_BYTES + 1).unwrap();
         drop(file);
-        match read_pdf_info(&path) {
+        match read_paged_info(&path) {
             Err(Error::TooLarge {
                 byte_len, limit, ..
             }) => {
-                assert_eq!(byte_len, PDF_BYTES + 1);
-                assert_eq!(limit, PDF_BYTES);
+                assert_eq!(byte_len, PAGED_BYTES + 1);
+                assert_eq!(limit, PAGED_BYTES);
             }
             other => panic!("expected TooLarge, got {other:?}"),
         }
@@ -456,7 +459,7 @@ mod tests {
     fn a_pdf_that_is_not_there_says_so() {
         let dir = tempfile::tempdir().unwrap();
         assert!(matches!(
-            read_pdf_info(&dir.path().join("nowhere.pdf")),
+            read_paged_info(&dir.path().join("nowhere.pdf")),
             Err(Error::Read { .. })
         ));
     }

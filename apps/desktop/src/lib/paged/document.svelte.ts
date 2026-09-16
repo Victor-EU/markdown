@@ -1,17 +1,18 @@
 import { nextId } from '../document.svelte.ts';
 import { basename } from '../paths.ts';
 import type { TextRun } from './engine.ts';
-import { type PageSize, type PdfDocument, PdfError, type PdfOutlineEntry } from './engine.ts';
+import { type PagedDocument, PagedError, type PagedOutlineEntry, type PageSize } from './engine.ts';
 
 /** A PDF that is US Letter until the file says otherwise. */
 const LETTER: PageSize = { width: 612, height: 792 };
 
 /**
- * An open PDF, held beside `Doc` rather than made into one (ADR 0035).
+ * An open paged document — a PDF, a Word document, a deck — held beside
+ * `Doc` rather than made into one (ADR 0035, ADR 0042).
  *
  * `Doc` is an `EditorState` with a Lezer tree over it — a buffer, an undo
- * history, an outline computed from headings, a word count. A PDF has
- * none of those. It has no source text the reader edits, nothing to
+ * history, an outline computed from headings, a word count. A file read
+ * by a page engine has none of those. It has no source text the reader edits, nothing to
  * autosave, nothing to hand an agent, and no merge to perform when the
  * file changes underneath. Making one into a `Doc` would mean a `Doc`
  * whose every field is a lie.
@@ -25,22 +26,22 @@ const LETTER: PageSize = { width: 612, height: 792 };
  * whole in memory to draw nothing — the same reason `insert` does not
  * focus the tabs it builds (plan WP 3.3).
  */
-export class PdfDoc {
-  readonly id = nextId('pdf');
+export class PagedDoc {
+  readonly id = nextId('paged');
   readonly path: string;
   /** How many pages, once the file has been opened. Zero before that. */
   pages = $state(0);
   /** The file's size in bytes, as Rust measured it on the way in. */
   byteLen = $state(0);
   /** The document's own bookmarks, once they have been asked for. */
-  outline = $state<PdfOutlineEntry[]>([]);
+  outline = $state<PagedOutlineEntry[]>([]);
   /** What went wrong, for the pane to draw instead of pages. */
   failure = $state<string | null>(null);
-  private document: PdfDocument | null = null;
-  private opening: Promise<PdfDocument | null> | null = null;
+  private document: PagedDocument | null = null;
+  private opening: Promise<PagedDocument | null> | null = null;
   /** Set once given up, so a file still opening is not opened into it. */
   private gone = false;
-  private readonly load: () => Promise<{ document: PdfDocument; byteLen: number }>;
+  private readonly load: () => Promise<{ document: PagedDocument; byteLen: number }>;
   /**
    * Page sizes in points, as they have been asked for.
    *
@@ -58,7 +59,7 @@ export class PdfDoc {
 
   constructor(options: {
     path: string;
-    load: () => Promise<{ document: PdfDocument; byteLen: number }>;
+    load: () => Promise<{ document: PagedDocument; byteLen: number }>;
   }) {
     this.path = options.path;
     this.load = options.load;
@@ -85,7 +86,7 @@ export class PdfDoc {
     return (await this.opening) !== null;
   }
 
-  private async begin(): Promise<PdfDocument | null> {
+  private async begin(): Promise<PagedDocument | null> {
     try {
       const { document, byteLen } = await this.load();
       // Given up while the file was opening — a tab dragged to another
@@ -114,7 +115,7 @@ export class PdfDoc {
       return document;
     } catch (error) {
       this.failure =
-        error instanceof PdfError
+        error instanceof PagedError
           ? error.reason
           : error instanceof Error
             ? error.message

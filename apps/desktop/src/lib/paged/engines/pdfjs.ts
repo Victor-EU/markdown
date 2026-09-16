@@ -9,14 +9,14 @@ import {
   Util,
 } from 'pdfjs-dist';
 import {
+  type PagedDocument,
+  PagedError,
+  type PagedOutlineEntry,
+  type PageEngine,
   type PageSize,
-  type PdfDocument,
-  type PdfEngine,
-  PdfError,
-  type PdfOutlineEntry,
   type RenderRequest,
   type TextRun,
-} from './engine.ts';
+} from '../engine.ts';
 
 /**
  * pdf.js behind the engine port (ADR 0035).
@@ -120,7 +120,7 @@ async function flattenOutline(
   doc: PDFDocumentProxy,
   items: readonly RawOutline[],
   level: number,
-  into: PdfOutlineEntry[],
+  into: PagedOutlineEntry[],
 ): Promise<void> {
   for (const item of items) {
     into.push({ level, text: item.title, page: await pageOfDest(doc, item.dest) });
@@ -128,7 +128,7 @@ async function flattenOutline(
   }
 }
 
-class PdfJsDocument implements PdfDocument {
+class PdfJsDocument implements PagedDocument {
   readonly pages: number;
   /**
    * Pages already asked for, so that scrolling back over one is not a
@@ -165,7 +165,7 @@ class PdfJsDocument implements PdfDocument {
     canvas.width = Math.max(1, Math.floor(drawn.width));
     canvas.height = Math.max(1, Math.floor(drawn.height));
     const context = canvas.getContext('2d');
-    if (!context) throw new PdfError('unavailable', 'no 2d canvas context');
+    if (!context) throw new PagedError('unavailable', 'no 2d canvas context');
     const task = proxy.render({
       canvas,
       canvasContext: context,
@@ -224,10 +224,10 @@ class PdfJsDocument implements PdfDocument {
     return runs;
   }
 
-  async outline(): Promise<PdfOutlineEntry[]> {
+  async outline(): Promise<PagedOutlineEntry[]> {
     const raw = (await this.doc.getOutline()) as RawOutline[] | null;
     if (!raw) return [];
-    const entries: PdfOutlineEntry[] = [];
+    const entries: PagedOutlineEntry[] = [];
     await flattenOutline(this.doc, raw, 1, entries);
     return entries;
   }
@@ -263,7 +263,7 @@ class PdfJsDocument implements PdfDocument {
 function startWorker(): PDFWorker | null {
   try {
     const url = new URL(WORKER_URL, globalThis.location?.href ?? 'http://localhost/');
-    const port = new Worker(url, { type: 'module', name: 'pdf' });
+    const port = new Worker(url, { type: 'module', name: 'paged' });
     // `create` rather than the constructor: it hands back the existing
     // `PDFWorker` for a port that already has one, where the constructor
     // throws. Nothing here opens two, but the difference is free.
@@ -274,11 +274,11 @@ function startWorker(): PDFWorker | null {
   }
 }
 
-export class PdfJsEngine implements PdfEngine {
+export class PdfJsEngine implements PageEngine {
   private worker: PDFWorker | null = null;
   private started = false;
 
-  async open(url: string): Promise<PdfDocument> {
+  async open(url: string): Promise<PagedDocument> {
     if (!this.started) {
       this.started = true;
       this.worker = startWorker();
@@ -312,12 +312,12 @@ export class PdfJsEngine implements PdfEngine {
       return new PdfJsDocument(await task.promise);
     } catch (error) {
       if (error instanceof PasswordException) {
-        throw new PdfError('password', error.message);
+        throw new PagedError('password', error.message);
       }
       if (error instanceof InvalidPDFException) {
-        throw new PdfError('corrupt', error.message);
+        throw new PagedError('corrupt', error.message);
       }
-      throw new PdfError('unavailable', error instanceof Error ? error.message : String(error));
+      throw new PagedError('unavailable', error instanceof Error ? error.message : String(error));
     }
   }
 

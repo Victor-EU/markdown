@@ -4,8 +4,8 @@ import Banner from './components/Banner.svelte';
 import EditorPane from './components/EditorPane.svelte';
 import FindBar from './components/FindBar.svelte';
 import Icon from './components/Icon.svelte';
+import PagedPane from './components/PagedPane.svelte';
 import Palette from './components/Palette.svelte';
-import PdfPane from './components/PdfPane.svelte';
 import ReadPane from './components/ReadPane.svelte';
 import Settings from './components/Settings.svelte';
 import Sidebar from './components/Sidebar.svelte';
@@ -20,7 +20,7 @@ let { shell }: { shell: Shell } = $props();
 const workspace = $derived(shell.workspace);
 const registry = $derived(shell.registry);
 const settings = $derived(workspace.activeTab?.kind === 'settings');
-const pdf = $derived(workspace.activeTab?.kind === 'pdf');
+const paged = $derived(workspace.activeTab?.kind === 'paged');
 
 /** How many of the last files the blank window offers again. */
 const RECENT = 5;
@@ -168,8 +168,8 @@ function drop(event: DragEvent) {
       </main>
     {:else if settings}
       <Settings {workspace} />
-    {:else if pdf}
-      <PdfPane {workspace} />
+    {:else if paged}
+      <PagedPane {workspace} />
     {:else if workspace.readMode}
       <ReadPane {workspace} />
     {:else}

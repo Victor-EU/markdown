@@ -1379,12 +1379,12 @@ button.title:hover {
  * the reader's chosen cream behind it would be the app arguing with the
  * document about what colour it is.
  */
-.page-pdf {
+.page-paged {
   overflow: auto;
   background: var(--bar-bg);
 }
 
-.page-pdf:focus {
+.page-paged:focus {
   outline: none;
 }
 
@@ -1393,12 +1393,12 @@ button.title:hover {
  * is in the page is a screenful of them, and the rest is height (plan
  * WP 2.7).
  */
-.pdf-sheet {
+.paged-sheet {
   position: relative;
   width: 100%;
 }
 
-.pdf-page {
+.paged-page {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
@@ -1406,7 +1406,7 @@ button.title:hover {
   box-shadow: 0 1px 4px var(--shadow);
 }
 
-.pdf-page canvas {
+.paged-page canvas {
   display: block;
 }
 
@@ -1416,7 +1416,7 @@ button.title:hover {
  * reach real text rather than pixels. `pre` because a run is a run:
  * collapsing its spaces would move every glyph after them.
  */
-.pdf-text {
+.paged-text {
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -1432,14 +1432,14 @@ button.title:hover {
   mix-blend-mode: multiply;
 }
 
-.pdf-text span {
+.paged-text span {
   position: absolute;
   transform-origin: 0 0;
   white-space: pre;
   cursor: text;
 }
 
-.pdf-text ::selection {
+.paged-text ::selection {
   background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
@@ -1454,18 +1454,18 @@ button.title:hover {
  * The `color` is reset because a browser's own `mark` rules set one,
  * and this layer's whole trick is that its text is invisible.
  */
-.pdf-text mark {
+.paged-text mark {
   background: color-mix(in srgb, var(--highlight) 60%, transparent);
   color: transparent;
   border-radius: 1px;
 }
 
-.pdf-text mark.here {
+.paged-text mark.here {
   background: var(--highlight);
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-.pdf-trouble {
+.paged-trouble {
   position: absolute;
   inset: 0;
   display: flex;

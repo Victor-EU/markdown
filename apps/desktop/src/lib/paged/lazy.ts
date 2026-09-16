@@ -1,4 +1,4 @@
-import type { PdfDocument, PdfEngine } from './engine.ts';
+import type { PagedDocument, PageEngine } from './engine.ts';
 
 /**
  * The engine, loaded the first time a PDF is opened (ADR 0035).
@@ -9,15 +9,15 @@ import type { PdfDocument, PdfEngine } from './engine.ts';
  * the library behind it arrives when something asks for it.
  *
  * This is also the only reason the shell can be built without pdf.js in
- * its first chunk while still holding a `PdfEngine` from the beginning —
+ * its first chunk while still holding a `PageEngine` from the beginning —
  * the port is what makes a stand-in like this possible at all.
  */
-export function lazyPdfEngine(): PdfEngine {
-  let engine: PdfEngine | null = null;
+export function lazyPageEngine(): PageEngine {
+  let engine: PageEngine | null = null;
   return {
-    async open(url: string): Promise<PdfDocument> {
+    async open(url: string): Promise<PagedDocument> {
       if (!engine) {
-        const { PdfJsEngine } = await import('./pdfjs.ts');
+        const { PdfJsEngine } = await import('./engines/pdfjs.ts');
         engine = new PdfJsEngine();
       }
       return engine.open(url);

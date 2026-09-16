@@ -10,7 +10,7 @@ import App from './App.svelte';
 // Which pulls in every theme's colours and the bundled faces.
 import './app.css';
 import { watchMenu } from './lib/menu.svelte.ts';
-import { lazyPdfEngine } from './lib/pdf/lazy.ts';
+import { lazyPageEngine } from './lib/paged/lazy.ts';
 import { isMac } from './lib/platform.ts';
 import { createEnhancer } from './lib/read/enhance.ts';
 import { createShell } from './lib/shell.svelte.ts';
@@ -25,7 +25,7 @@ const FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdx', 'txt'
  * the panel's own pop-up is where a reader narrows the list, and
  * "Markdown" that also means PDF is a lie in a menu.
  *
- * `bundle.fileAssociations` deliberately does not claim `.pdf` (ADR
+ * `bundle.fileAssociations` deliberately does not claim `.paged` (ADR
  * 0035), so this and a drop are the two ways in.
  */
 const OPEN_FILTERS = [...FILTERS, { name: 'PDF', extensions: ['pdf'] }];
@@ -53,7 +53,7 @@ const shell = createShell({
   // pdf.js, behind the engine port and loaded on the first PDF (ADR
   // 0035). Only under Tauri: the pane reads the file over the asset
   // protocol, and a browser build has no such protocol to read it over.
-  pdfEngine: isTauri() ? lazyPdfEngine() : undefined,
+  pageEngine: isTauri() ? lazyPageEngine() : undefined,
   // Images and PDFs load over the asset protocol, whose scope Rust
   // widens to each opened file's folder (design 8). Outside Tauri
   // nothing local loads.

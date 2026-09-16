@@ -22,7 +22,7 @@ import type {
   MenuSection,
   MergeResult,
   Override,
-  PdfInfo,
+  PagedInfo,
   PositionEdit,
   ReadOnly,
   Restore,
@@ -527,13 +527,13 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     // big the file is, and — by answering at all — that the asset
     // protocol may now read the folder it is in (ADR 0035). A file that
     // is not there fails here, which is where a test puts a missing PDF.
-    openPdf: (path) => {
+    openPaged: (path) => {
       const file = files.get(path);
       return record(
-        'open_pdf',
+        'open_paged',
         [path],
         file === undefined
-          ? err<PdfInfo>({ kind: 'read', path, message: 'no such file' })
+          ? err<PagedInfo>({ kind: 'read', path, message: 'no such file' })
           : ok({ byte_len: file.content.length }),
       );
     },

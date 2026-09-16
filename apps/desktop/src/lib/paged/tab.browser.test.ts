@@ -2,14 +2,14 @@ import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Workspace } from '../workspace.svelte.ts';
 import type {
+  PagedDocument,
+  PagedOutlineEntry,
+  PageEngine,
   PageSize,
-  PdfDocument,
-  PdfEngine,
-  PdfOutlineEntry,
   RenderRequest,
   TextRun,
 } from './engine.ts';
-import { PdfError } from './engine.ts';
+import { PagedError } from './engine.ts';
 
 /**
  * A PDF as a tab (ADR 0035, WP 4.2 and 4.3), with a fake engine.
@@ -22,12 +22,12 @@ import { PdfError } from './engine.ts';
  */
 
 /** Two pages, some text, and one bookmark. A dozen lines, as promised. */
-function fakeEngine(pages = 2): PdfEngine & { opened: string[]; alive: number } {
+function fakeEngine(pages = 2): PageEngine & { opened: string[]; alive: number } {
   const engine = {
     opened: [] as string[],
     alive: 0,
-    async open(url: string): Promise<PdfDocument> {
-      if (url.includes('missing')) throw new PdfError('corrupt', 'not a PDF');
+    async open(url: string): Promise<PagedDocument> {
+      if (url.includes('missing')) throw new PagedError('corrupt', 'not a PDF');
       engine.opened.push(url);
       engine.alive += 1;
       return {
@@ -47,7 +47,7 @@ function fakeEngine(pages = 2): PdfEngine & { opened: string[]; alive: number } 
             { text: 'hello world', rect: [70, 10, 80, 12] },
           ];
         },
-        async outline(): Promise<PdfOutlineEntry[]> {
+        async outline(): Promise<PagedOutlineEntry[]> {
           return [
             { level: 1, text: 'Front', page: 1 },
             { level: 2, text: 'Back', page: 2 },
@@ -89,7 +89,7 @@ function open(files: Record<string, string>, pages = 2) {
   engine = fakeEngine(pages);
   workspace = new Workspace({
     commands: ipc.commands,
-    pdfEngine: engine,
+    pageEngine: engine,
     assetUrl: (path) => `asset://localhost/${path}`,
   });
 }
@@ -113,9 +113,9 @@ describe('opening a PDF', () => {
     open({ '/a/paper.pdf': '%PDF-1.7 ...' });
     await workspace.openPaths(['/a/paper.pdf']);
     const tab = workspace.activeTab;
-    expect(tab?.kind).toBe('pdf');
+    expect(tab?.kind).toBe('paged');
     expect(workspace.activeDoc).toBeNull();
-    expect(workspace.activePdf?.label).toBe('paper.pdf');
+    expect(workspace.activePaged?.label).toBe('paper.pdf');
     expect(workspace.labels).toEqual(['paper.pdf']);
     expect(workspace.status).toBe('paper.pdf · 2 pages');
   });
@@ -132,7 +132,7 @@ describe('opening a PDF', () => {
     open({ '/a/paper.pdf': '%PDF' });
     await workspace.openPaths(['/a/paper.pdf']);
     // Without this the protocol answers 403 and the pane stays blank.
-    expect(ipc.calls.map((call) => call.command)).toContain('open_pdf');
+    expect(ipc.calls.map((call) => call.command)).toContain('open_paged');
     expect(engine.opened).toEqual(['asset://localhost//a/paper.pdf']);
   });
 
@@ -149,7 +149,7 @@ describe('opening a PDF', () => {
   });
 
   it('says why, when it will not open', async () => {
-    open({ '/a/missing.pdf': 'not really a pdf' });
+    open({ '/a/missing.pdf': 'not really a paged' });
     await workspace.openPaths(['/a/missing.pdf']);
     expect(workspace.tabs.length).toBe(0);
     expect(workspace.status).toBe('missing.pdf is not a readable PDF');
@@ -166,11 +166,11 @@ describe('opening a PDF', () => {
     open({ '/a/paper.pdf': '%PDF', '/a/notes.md': '# Notes\n' });
     await workspace.openPaths(['/a/paper.pdf', '/a/notes.md']);
     const scope = ipc.calls.filter(
-      (call) => call.command === 'allow_document_images' || call.command === 'open_pdf',
+      (call) => call.command === 'allow_document_images' || call.command === 'open_paged',
     );
     // One call per folder, not one per file (design 8).
     expect(scope.length).toBe(1);
-    expect(workspace.tabs.map((tab) => tab.kind)).toEqual(['pdf', 'document']);
+    expect(workspace.tabs.map((tab) => tab.kind)).toEqual(['paged', 'document']);
   });
 });
 
@@ -202,11 +202,11 @@ describe('the session', () => {
     open({ '/a/paper.pdf': '%PDF' });
     await workspace.openPaths(['/a/paper.pdf']);
     const tab = workspace.activeTab;
-    if (tab) tab.pdf = { page: 2, fraction: 0.5, zoom: 1.5 };
+    if (tab) tab.paged = { page: 2, fraction: 0.5, zoom: 1.5 };
     const state = workspace.sessionState();
     expect(state.documents).toEqual([{ path: '/a/paper.pdf', untitled: null }]);
     const saved = state.tabs?.[0];
-    expect(saved?.kind).toBe('pdf');
+    expect(saved?.kind).toBe('paged');
     // The page, and not the fraction: landing at the top of the right
     // page is honest, and `anchor` stays a source offset.
     expect(saved?.page).toBe(2);
@@ -221,8 +221,8 @@ describe('the session', () => {
     workspace.destroy();
     open({ '/a/paper.pdf': '%PDF' });
     await workspace.restore(state);
-    expect(workspace.tabs.map((tab) => tab.kind)).toEqual(['pdf']);
-    expect(workspace.activePdf?.path).toBe('/a/paper.pdf');
+    expect(workspace.tabs.map((tab) => tab.kind)).toEqual(['paged']);
+    expect(workspace.activePaged?.path).toBe('/a/paper.pdf');
     // `restore` walks every entry through `restoreDoc`, which calls
     // `load`, which reads the file as text. A PDF has to be turned away
     // there as well as in `openPaths`.
@@ -239,9 +239,9 @@ describe('the session', () => {
     // A restored session of two hundred tabs ends with the reader in
     // one of them; the rest cost nothing until they are looked at.
     expect(engine.opened).toEqual([]);
-    await workspace.mountPdf(host);
+    await workspace.mountPaged(host);
     expect(engine.opened).toEqual(['asset://localhost//a/paper.pdf']);
-    expect(workspace.activePdf?.pages).toBe(2);
+    expect(workspace.activePaged?.pages).toBe(2);
   });
 
   it('restores a document beside it, indexed by the same list', async () => {
@@ -255,7 +255,7 @@ describe('the session', () => {
     // `TabState.document` is an index into one list, so a PDF needs an
     // entry in it and everything after it depends on that entry being
     // in the right place.
-    expect(workspace.tabs.map((tab) => tab.kind)).toEqual(['document', 'pdf']);
+    expect(workspace.tabs.map((tab) => tab.kind)).toEqual(['document', 'paged']);
     expect(workspace.tabs.map((tab) => workspace.pathOf(tab))).toEqual([
       '/a/notes.md',
       '/a/paper.pdf',
@@ -267,11 +267,11 @@ describe('the pane', () => {
   it('draws the pages in the window and gives back the ones that leave', async () => {
     open({ '/a/paper.pdf': '%PDF' }, 40);
     await workspace.openPaths(['/a/paper.pdf']);
-    await workspace.mountPdf(host);
-    const view = workspace.pdfView;
+    await workspace.mountPaged(host);
+    const view = workspace.pagedView;
     expect(view).not.toBeNull();
-    await until(() => host.querySelectorAll('.pdf-page').length > 0);
-    const drawn = host.querySelectorAll('.pdf-page').length;
+    await until(() => host.querySelectorAll('.paged-page').length > 0);
+    const drawn = host.querySelectorAll('.paged-page').length;
     // A forty-page document at 800 points a page is 32,000 points of
     // scroll; a 600-pixel window holds a handful of them (plan WP 2.7).
     expect(drawn).toBeGreaterThan(0);
@@ -281,37 +281,37 @@ describe('the pane', () => {
   it('knows which page is in front, and says so', async () => {
     open({ '/a/paper.pdf': '%PDF' }, 10);
     await workspace.openPaths(['/a/paper.pdf']);
-    await workspace.mountPdf(host);
+    await workspace.mountPaged(host);
     workspace.goToPdfPage(4);
-    await until(() => workspace.pdfPage === 4);
-    expect(workspace.pdfView?.page).toBe(4);
-    expect(workspace.pdfPage).toBe(4);
+    await until(() => workspace.pagedPage === 4);
+    expect(workspace.pagedView?.page).toBe(4);
+    expect(workspace.pagedPage).toBe(4);
   });
 
   it('saves the reader’s place on the tab when the pane goes', async () => {
     open({ '/a/paper.pdf': '%PDF' }, 10);
     await workspace.openPaths(['/a/paper.pdf']);
-    await workspace.mountPdf(host);
+    await workspace.mountPaged(host);
     workspace.goToPdfPage(3);
-    workspace.unmountPdf();
-    expect(workspace.activeTab?.pdf?.page).toBe(3);
+    workspace.unmountPaged();
+    expect(workspace.activeTab?.paged?.page).toBe(3);
   });
 
   it('zooms the page rather than the reading size', async () => {
     open({ '/a/paper.pdf': '%PDF' });
     await workspace.openPaths(['/a/paper.pdf']);
-    await workspace.mountPdf(host);
+    await workspace.mountPaged(host);
     const size = workspace.applied.size;
     workspace.zoom(1);
     // Same key, same gesture; the tab in front decides what it means.
-    expect(workspace.pdfView?.scale).toBeGreaterThan(1);
+    expect(workspace.pagedView?.scale).toBeGreaterThan(1);
     expect(workspace.applied.size).toBe(size);
     // And the status bar can see it: a cell that read the view would
     // say 100% for the life of the tab, because the view is not state.
-    expect(workspace.pdfZoom).toBe(workspace.pdfView?.scale);
+    expect(workspace.pagedZoom).toBe(workspace.pagedView?.scale);
     workspace.resetZoom();
-    expect(workspace.pdfView?.scale).toBe(1);
-    expect(workspace.pdfZoom).toBe(1);
+    expect(workspace.pagedView?.scale).toBe(1);
+    expect(workspace.pagedZoom).toBe(1);
   });
 });
 
@@ -319,12 +319,12 @@ describe('find over a PDF', () => {
   it('searches the extracted text and steps through what it finds', async () => {
     open({ '/a/paper.pdf': '%PDF' }, 3);
     await workspace.openPaths(['/a/paper.pdf']);
-    await workspace.mountPdf(host);
+    await workspace.mountPaged(host);
     workspace.openFind(false);
     workspace.updateFind({ query: 'hello' });
     await until(() => workspace.matches.total === 3);
     // One per page, from the fake's own runs.
-    expect(workspace.pdfSearch.hits.map((hit) => hit.page)).toEqual([1, 2, 3]);
+    expect(workspace.pagedSearch.hits.map((hit) => hit.page)).toEqual([1, 2, 3]);
     expect(workspace.matches.total).toBe(3);
     expect(workspace.findStep(true)).toBe(true);
     expect(workspace.matches.current).toBe(1);
@@ -340,8 +340,8 @@ describe('find over a PDF', () => {
     workspace.activate(workspace.tabs[1]?.id ?? null);
     // Cleared and asked again of the file now in front, rather than
     // counting matches in one nobody is looking at.
-    await until(() => workspace.matches.total === 2 && !workspace.pdfSearch.running);
-    expect(workspace.pdfSearch.at).toBe(-1);
+    await until(() => workspace.matches.total === 2 && !workspace.pagedSearch.running);
+    expect(workspace.pagedSearch.at).toBe(-1);
     expect(workspace.matches.total).toBe(2);
   });
 
@@ -363,7 +363,7 @@ describe('closing', () => {
     expect(workspace.tabs.length).toBe(0);
     expect(workspace.status).toBe('Closed paper.pdf');
     workspace.reopenClosed();
-    expect(workspace.activePdf?.path).toBe('/a/paper.pdf');
+    expect(workspace.activePaged?.path).toBe('/a/paper.pdf');
     expect(engine.opened.length).toBe(opened);
     expect(workspace.status).toBe('Reopened paper.pdf');
   });
@@ -391,9 +391,9 @@ describe('a PDF tab moved to another window', () => {
   function windows(files: Record<string, string>) {
     ipc = createFakeIpc(files);
     engine = fakeEngine(4);
-    const options = { commands: ipc.commands, pdfEngine: engine, assetUrl: (p: string) => p };
+    const options = { commands: ipc.commands, pageEngine: engine, assetUrl: (p: string) => p };
     here = new Workspace(options);
-    there = new Workspace({ ...options, pdfEngine: fakeEngine(4) });
+    there = new Workspace({ ...options, pageEngine: fakeEngine(4) });
   }
 
   function handed() {
@@ -411,7 +411,7 @@ describe('a PDF tab moved to another window', () => {
     windows({ '/w/paper.pdf': '%PDF' });
     await here.openPaths(['/w/paper.pdf']);
     const tab = here.tabs[0];
-    if (tab) tab.pdf = { page: 3, fraction: 0.5, zoom: 2 };
+    if (tab) tab.paged = { page: 3, fraction: 0.5, zoom: 2 };
     expect(await here.moveTab(tab?.id ?? '')).toBe(true);
     const move = handed();
     expect(move.path).toBe('/w/paper.pdf');
@@ -439,13 +439,13 @@ describe('a PDF tab moved to another window', () => {
     windows({ '/w/paper.pdf': '%PDF' });
     await here.openPaths(['/w/paper.pdf']);
     const tab = here.tabs[0];
-    if (tab) tab.pdf = { page: 2, fraction: 0, zoom: 1 };
+    if (tab) tab.paged = { page: 2, fraction: 0, zoom: 1 };
     await here.moveTab(tab?.id ?? '');
     const before = ipc.calls.length;
     await there.adoptTab(handed());
-    expect(there.tabs.map((open) => open.kind)).toEqual(['pdf']);
-    expect(there.activePdf?.path).toBe('/w/paper.pdf');
-    expect(there.activeTab?.pdf?.page).toBe(2);
+    expect(there.tabs.map((open) => open.kind)).toEqual(['paged']);
+    expect(there.activePaged?.path).toBe('/w/paper.pdf');
+    expect(there.activeTab?.paged?.page).toBe(2);
     // The window that sent it has not written its session down yet, so
     // asking the registry would have the tab turned away at the door.
     expect(ipc.calls.slice(before).map((call) => call.command)).not.toContain('reveal_path');

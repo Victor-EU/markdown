@@ -4,7 +4,7 @@ import {
   dirname,
   fileUrlToPath,
   inside,
-  isPdfPath,
+  isPagedPath,
   shortenDir,
   tabLabels,
 } from './paths.ts';
@@ -67,17 +67,17 @@ describe('fileUrlToPath', () => {
   });
 });
 
-describe('isPdfPath', () => {
+describe('isPagedPath', () => {
   it('recognises one however it is spelled', () => {
-    expect(isPdfPath('/a/paper.pdf')).toBe(true);
-    expect(isPdfPath('C:\\docs\\Paper.PDF')).toBe(true);
+    expect(isPagedPath('/a/paper.pdf')).toBe(true);
+    expect(isPagedPath('C:\\docs\\Paper.PDF')).toBe(true);
   });
 
   it('leaves everything else to open as a document', () => {
     // Asked of a path the OS handed over, before anything is read: a
     // file whose name says nothing opens the way it always has.
-    expect(isPdfPath('/a/notes.md')).toBe(false);
-    expect(isPdfPath('/a/pdf')).toBe(false);
-    expect(isPdfPath('/a/paper.pdf.md')).toBe(false);
+    expect(isPagedPath('/a/notes.md')).toBe(false);
+    expect(isPagedPath('/a/pdf')).toBe(false);
+    expect(isPagedPath('/a/paper.pdf.md')).toBe(false);
   });
 });

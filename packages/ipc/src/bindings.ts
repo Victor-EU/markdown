@@ -37,7 +37,7 @@ export const commands = {
 	 *  Let the webview load images from a document's folder and below.
 	 * 
 	 *  The asset protocol starts with an empty scope (design 8), and it grows
-	 *  only here and in `open_pdf`, only to the folder of a file the reader
+	 *  only here and in `open_paged`, only to the folder of a file the reader
 	 *  has opened. Nothing else in the app can widen it, and nothing outside
 	 *  those folders is reachable from the page.
 	 */
@@ -52,7 +52,7 @@ export const commands = {
 	 *  has to be asked for here or the asset protocol answers 403 and the
 	 *  pane stays blank.
 	 */
-	openPdf: (path: string) => typedError<PdfInfo, Error>(__TAURI_INVOKE("open_pdf", { path })),
+	openPaged: (path: string) => typedError<PagedInfo, Error>(__TAURI_INVOKE("open_paged", { path })),
 	/**
 	 *  Store an image pasted into a document, beside it in `assets`.
 	 * 
@@ -762,6 +762,11 @@ export type Override = {
 	measure?: number | null,
 };
 
+/**  What the shell learns about a PDF before it hands one to the renderer. */
+export type PagedInfo = {
+	byte_len: number,
+};
+
 /**
  *  The page's own background (design 11), which is a setting of its own
  *  rather than a consequence of light or dark: paper colour changes
@@ -772,11 +777,6 @@ export type Paper = "white" | "cream" |
 "pad" | 
 /**  The high-contrast one, dark in a light window as well as a dark. */
 "black";
-
-/**  What the shell learns about a PDF before it hands one to the renderer. */
-export type PdfInfo = {
-	byte_len: number,
-};
 
 /**  One position-based edit the frontend applies as a `CodeMirror` change. */
 export type PositionEdit = {
@@ -940,7 +940,15 @@ export type TabArrivedEvent = TabMove;
  *  (plan WP 1.9) and a PDF is read by a different engine entirely
  *  (ADR 0035), so not every tab has a document behind it.
  */
-export type TabKind = "document" | "settings" | "pdf";
+export type TabKind = "document" | "settings" | 
+/**
+ *  A file read by a page engine rather than as text: a PDF, and from
+ *  ADR 0042 a Word document or a deck. 0.2.0 wrote this as `pdf`,
+ *  which `read` brings up to date rather than dropping — an alias
+ *  here would do it too, and would make specta split every type
+ *  above this one into a serialize half and a deserialize half.
+ */
+"paged";
 
 /**  Which projection of a document a tab was showing (design 4.2). */
 export type TabMode = "read" | "edit" | "source";

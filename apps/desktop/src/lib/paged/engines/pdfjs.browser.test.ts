@@ -1,11 +1,11 @@
 import { createFakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { Workspace } from '../workspace.svelte.ts';
-import { type PdfDocument, PdfError } from './engine.ts';
-import { hitsInPage, queryRegExp } from './find.ts';
-import cjkUrl from './fixtures/cjk.pdf?url';
-import embeddedUrl from './fixtures/embedded.pdf?url';
-import standardUrl from './fixtures/standard.pdf?url';
+import { Workspace } from '../../workspace.svelte.ts';
+import { type PagedDocument, PagedError } from '../engine.ts';
+import { hitsInPage, queryRegExp } from '../find.ts';
+import cjkUrl from '../fixtures/cjk.pdf?url';
+import embeddedUrl from '../fixtures/embedded.pdf?url';
+import standardUrl from '../fixtures/standard.pdf?url';
 import { PdfJsEngine } from './pdfjs.ts';
 
 /**
@@ -29,7 +29,7 @@ import { PdfJsEngine } from './pdfjs.ts';
 const engine = new PdfJsEngine();
 
 describe('a PDF with no embedded fonts', () => {
-  let doc: PdfDocument;
+  let doc: PagedDocument;
   beforeAll(async () => {
     doc = await engine.open(standardUrl);
   });
@@ -114,7 +114,7 @@ describe('a PDF that carries its own font', () => {
 
 describe('when a PDF will not open', () => {
   it('says which of the ways it failed', async () => {
-    await expect(engine.open('/pdf/does-not-exist.pdf')).rejects.toBeInstanceOf(PdfError);
+    await expect(engine.open('/pdf/does-not-exist.pdf')).rejects.toBeInstanceOf(PagedError);
   });
 });
 
@@ -182,15 +182,15 @@ describe('the whole thing, with the real engine', () => {
     const ipc = createFakeIpc({ '/a/standard.pdf': '%PDF' });
     workspace = new Workspace({
       commands: ipc.commands,
-      pdfEngine: engine,
+      pageEngine: engine,
       // The fixture is served by the test runner, so the "asset URL"
       // of the one path this workspace knows about is that.
       assetUrl: () => standardUrl,
     });
     await workspace.openPaths(['/a/standard.pdf']);
-    expect(workspace.activePdf?.pages).toBe(3);
-    await workspace.mountPdf(host);
-    await until(() => host.querySelectorAll('.pdf-page').length > 0);
+    expect(workspace.activePaged?.pages).toBe(3);
+    await workspace.mountPaged(host);
+    await until(() => host.querySelectorAll('.paged-page').length > 0);
     await until(() => workspace.outlineRows.length === 3);
     expect(workspace.outlineRows.length).toBe(3);
     workspace.openFind(false);
@@ -198,15 +198,15 @@ describe('the whole thing, with the real engine', () => {
     await until(() => workspace.matches.total === 1);
     expect(workspace.matches.total).toBe(1);
     expect(workspace.findStep(true)).toBe(true);
-    expect(workspace.pdfPage).toBe(1);
+    expect(workspace.pagedPage).toBe(1);
     // The mark lands when the page's text layer does, which is after
     // the page element and on its own tick (`setHits` keeps hits for a
     // page whose text is not laid yet, and `layText` marks it on the way
     // out), so it is waited for and not assumed.
-    await until(() => host.querySelectorAll('.pdf-text mark').length === 1);
+    await until(() => host.querySelectorAll('.paged-text mark').length === 1);
     // The match is marked where the word is, not across the line it
     // happens to share with the rest of the sentence.
-    const marks = host.querySelectorAll('.pdf-text mark');
+    const marks = host.querySelectorAll('.paged-text mark');
     expect(marks.length).toBe(1);
     expect(marks[0]?.textContent).toBe('brown');
     expect(marks[0]?.className).toBe('here');

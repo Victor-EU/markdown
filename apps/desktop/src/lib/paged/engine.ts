@@ -1,13 +1,14 @@
 /**
- * The PDF engine port (ADR 0035).
+ * The page engine port (ADR 0035, widened by ADR 0042).
  *
  * No pdf.js type may appear in this file, and neither may the library's
  * name: `single-import.test.ts` reads that literally. It is the whole of
- * what the shell is allowed to know about rendering a PDF, and it is
+ * what the shell is allowed to know about rendering a paged document —
+ * a PDF, and from ADR 0042 a Word document or a deck — and it is
  * written to be satisfiable by more than one library: pdf.js is the
- * engine we chose, PDFium is the one we might choose later, and the
- * point of the seam is that swapping them is writing one file rather
- * than unpicking the shell.
+ * engine we chose for PDF, PDFium is the one we might choose later, and
+ * the point of the seam is that a format is one adapter behind it
+ * rather than anything in the shell.
  *
  * Three properties of this interface are deliberate.
  *
@@ -34,7 +35,7 @@ export interface PageSize {
 }
 
 /** One bookmark in a document's own table of contents. */
-export interface PdfOutlineEntry {
+export interface PagedOutlineEntry {
   level: number;
   text: string;
   page: number;
@@ -57,18 +58,18 @@ export interface TextRun {
   rect: readonly [number, number, number, number];
 }
 
-export interface PdfDocument {
+export interface PagedDocument {
   readonly pages: number;
   size(page: number): Promise<PageSize>;
   render(request: RenderRequest): Promise<void>;
   text(page: number): Promise<TextRun[]>;
-  outline(): Promise<PdfOutlineEntry[]>;
+  outline(): Promise<PagedOutlineEntry[]>;
   destroy(): void;
 }
 
-export interface PdfEngine {
+export interface PageEngine {
   /** The URL is the asset protocol's; the engine fetches it itself. */
-  open(url: string): Promise<PdfDocument>;
+  open(url: string): Promise<PagedDocument>;
   destroy(): void;
 }
 
@@ -80,21 +81,21 @@ export interface PdfEngine {
  * because it is a limit this app chose rather than anything wrong with
  * the file.
  */
-export type PdfFailure = 'password' | 'corrupt' | 'too_large' | 'unavailable';
+export type PagedFailure = 'password' | 'corrupt' | 'too_large' | 'unavailable';
 
-export class PdfError extends Error {
+export class PagedError extends Error {
   constructor(
-    readonly reason: PdfFailure,
+    readonly reason: PagedFailure,
     message: string,
   ) {
     super(message);
-    this.name = 'PdfError';
+    this.name = 'PagedError';
   }
 }
 
 /** What the status bar says when a PDF will not open. */
-export function describePdfError(error: unknown, name: string): string {
-  if (!(error instanceof PdfError)) return `${name} could not be opened`;
+export function describePagedError(error: unknown, name: string): string {
+  if (!(error instanceof PagedError)) return `${name} could not be opened`;
   switch (error.reason) {
     case 'password':
       return `${name} is password protected`;

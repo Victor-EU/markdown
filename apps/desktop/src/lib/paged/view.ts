@@ -1,7 +1,7 @@
 import { Heights } from '../read/heights.ts';
-import type { PdfPlace } from '../workspace.svelte.ts';
-import type { PdfDoc } from './document.svelte.ts';
-import type { PdfHit } from './find.ts';
+import type { PagedPlace } from '../workspace.svelte.ts';
+import type { PagedDoc } from './document.svelte.ts';
+import type { PagedHit } from './find.ts';
 
 /**
  * A window onto a PDF, a screenful of pages at a time (ADR 0035, plan
@@ -31,14 +31,14 @@ export const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4] as const;
 export const MIN_ZOOM = ZOOMS[0];
 export const MAX_ZOOM = ZOOMS[ZOOMS.length - 1] as number;
 
-export interface PdfViewOptions {
+export interface PagedViewOptions {
   /** The scrolling element. The view fills it and owns its children. */
   parent: HTMLElement;
-  pdf: PdfDoc;
+  doc: PagedDoc;
   /** Where to open: the page the tab was left on, and the zoom. */
-  place: PdfPlace;
+  place: PagedPlace;
   /** Called as the reader scrolls, for the status bar's page number. */
-  onPlace?: (place: PdfPlace) => void;
+  onPlace?: (place: PagedPlace) => void;
   /**
    * A page that would not draw. Reported rather than swallowed: a blank
    * page and a page of white paper look the same, and the difference is
@@ -64,10 +64,10 @@ interface Live {
   texts: string[];
 }
 
-export class PdfView {
+export class PagedView {
   private readonly parent: HTMLElement;
-  private readonly pdf: PdfDoc;
-  private readonly onPlace: ((place: PdfPlace) => void) | undefined;
+  private readonly doc: PagedDoc;
+  private readonly onPlace: ((place: PagedPlace) => void) | undefined;
   private readonly onTrouble: ((message: string) => void) | undefined;
   /** Said once per document, not once per page a bad file fails to draw. */
   private toldOfTrouble = false;
@@ -84,18 +84,18 @@ export class PdfView {
   private readonly onScroll: () => void;
   private readonly resize: ResizeObserver | null;
   /** What Find has found, by page, so a page drawn later is marked too. */
-  private hits = new Map<number, PdfHit[]>();
-  private currentHit: PdfHit | null = null;
+  private hits = new Map<number, PagedHit[]>();
+  private currentHit: PagedHit | null = null;
 
-  constructor(options: PdfViewOptions) {
+  constructor(options: PagedViewOptions) {
     this.parent = options.parent;
-    this.pdf = options.pdf;
+    this.doc = options.doc;
     this.onPlace = options.onPlace;
     this.onTrouble = options.onTrouble;
     this.zoom = clampZoom(options.place.zoom);
     this.page = Math.max(1, options.place.page);
     this.sheet = document.createElement('div');
-    this.sheet.className = 'pdf-sheet';
+    this.sheet.className = 'paged-sheet';
     this.parent.replaceChildren(this.sheet);
     this.fill();
     this.onScroll = () => this.schedule();
@@ -119,9 +119,9 @@ export class PdfView {
    * — is exact from here on.
    */
   private fill(): void {
-    const nominal = this.pdf.nominal;
-    for (let page = 1; page <= this.pdf.pages; page++) {
-      const size = this.pdf.sizeOf(page) ?? nominal;
+    const nominal = this.doc.nominal;
+    for (let page = 1; page <= this.doc.pages; page++) {
+      const size = this.doc.sizeOf(page) ?? nominal;
       this.heights.push(size.height * this.zoom + GAP);
     }
     this.sheet.style.height = `${this.heights.total}px`;
@@ -147,7 +147,7 @@ export class PdfView {
   }
 
   /** Where the reader is: the page in front and how far down it. */
-  place(): PdfPlace {
+  place(): PagedPlace {
     const top = this.parent.scrollTop;
     const at = this.heights.indexAt(top);
     const start = this.heights.upto(at);
@@ -161,7 +161,7 @@ export class PdfView {
 
   /** Put a page at the top of the window. */
   goTo(page: number, fraction = 0): void {
-    const at = Math.max(0, Math.min(page - 1, this.pdf.pages - 1));
+    const at = Math.max(0, Math.min(page - 1, this.doc.pages - 1));
     const height = Math.max(1, this.heights.height(at) - GAP);
     this.parent.scrollTop = this.heights.upto(at) + height * fraction;
     this.draw(this.parent.scrollTop);
@@ -218,11 +218,11 @@ export class PdfView {
     let held = this.live.get(page);
     if (!held) {
       const el = document.createElement('div');
-      el.className = 'pdf-page';
+      el.className = 'paged-page';
       el.dataset.page = String(page);
       const canvas = document.createElement('canvas');
       const text = document.createElement('div');
-      text.className = 'pdf-text';
+      text.className = 'paged-text';
       el.append(canvas, text);
       this.sheet.append(el);
       held = { el, canvas, text, drawing: null, drawn: 0, laid: false, spans: [], texts: [] };
@@ -231,7 +231,7 @@ export class PdfView {
     // The size first: a page whose real size differs from page one's
     // moves everything under it, and the reader should not see that as
     // a jump after the pixels arrive.
-    const size = await this.pdf.size(page);
+    const size = await this.doc.size(page);
     if (this.destroyed || this.live.get(page) !== held) return;
     const width = size.width * this.zoom;
     const height = size.height * this.zoom;
@@ -250,7 +250,7 @@ export class PdfView {
       held.canvas.style.width = `${width}px`;
       held.canvas.style.height = `${height}px`;
       try {
-        await this.pdf.render(page, scale, held.canvas, drawing.signal);
+        await this.doc.render(page, scale, held.canvas, drawing.signal);
       } catch (error) {
         // A page that will not draw is a blank page and not a broken
         // pane, so the rest of the document carries on — but the reader
@@ -280,7 +280,7 @@ export class PdfView {
    * not the face in the file.
    */
   private async layText(page: number, held: Live): Promise<void> {
-    const runs = await this.pdf.text(page);
+    const runs = await this.doc.text(page);
     if (this.destroyed || this.live.get(page) !== held) return;
     const spans: { el: HTMLElement; width: number }[] = [];
     const fragment = document.createDocumentFragment();
@@ -312,7 +312,7 @@ export class PdfView {
    * of the hits are on pages that are not in the page: a page reaching
    * the window later is marked when its text layer is built.
    */
-  setHits(hits: readonly PdfHit[], current: PdfHit | null): void {
+  setHits(hits: readonly PagedHit[], current: PagedHit | null): void {
     this.hits = new Map();
     for (const hit of hits) {
       const held = this.hits.get(hit.page);
@@ -381,9 +381,9 @@ export class PdfView {
   }
 
   /** Put a hit in the window, with a little of the page above it. */
-  goToHit(hit: PdfHit): void {
-    const at = Math.max(0, Math.min(hit.page - 1, this.pdf.pages - 1));
-    const rect = this.pdf.sizeOf(hit.page);
+  goToHit(hit: PagedHit): void {
+    const at = Math.max(0, Math.min(hit.page - 1, this.doc.pages - 1));
+    const rect = this.doc.sizeOf(hit.page);
     const top = this.heights.upto(at);
     const run = this.live.get(hit.page)?.spans[hit.from];
     if (run && rect) {

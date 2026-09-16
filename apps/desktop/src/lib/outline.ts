@@ -1,5 +1,5 @@
 import type { OutlineEntry } from '@markdown/markdown';
-import type { PdfOutlineEntry } from './pdf/engine.ts';
+import type { PagedOutlineEntry } from './paged/engine.ts';
 
 /**
  * What the sidebar's Outline panel draws, whatever it is drawing from
@@ -36,6 +36,6 @@ export function headingRow(entry: OutlineEntry): OutlineRow {
   };
 }
 
-export function bookmarkRow(entry: PdfOutlineEntry): OutlineRow {
+export function bookmarkRow(entry: PagedOutlineEntry): OutlineRow {
   return { level: entry.level, text: entry.text, target: { kind: 'page', page: entry.page } };
 }

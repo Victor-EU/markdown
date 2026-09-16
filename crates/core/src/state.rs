@@ -296,7 +296,12 @@ pub enum TabKind {
     #[default]
     Document,
     Settings,
-    Pdf,
+    /// A file read by a page engine rather than as text: a PDF, and from
+    /// ADR 0042 a Word document or a deck. 0.2.0 wrote this as `pdf`,
+    /// which `read` brings up to date rather than dropping — an alias
+    /// here would do it too, and would make specta split every type
+    /// above this one into a serialize half and a deserialize half.
+    Paged,
 }
 
 /// Which of the sidebar's panels was showing (design 4.1, 4.4).
@@ -726,7 +731,7 @@ fn read<T: DeserializeOwned + Default>(path: &Path) -> T {
     let Ok(text) = fs::read_to_string(path) else {
         return T::default();
     };
-    match serde_json::from_str(&text) {
+    match parse(&text) {
         Ok(value) => value,
         Err(error) => {
             if let Some((value, dropped)) = without_unknown_tabs(&text) {
@@ -746,6 +751,50 @@ fn read<T: DeserializeOwned + Default>(path: &Path) -> T {
             T::default()
         }
     }
+}
+
+/// What an earlier build called a tab kind, and what this one calls it.
+///
+/// A PDF tab was `pdf` until 0.2.0; ADR 0042 made it one `paged` kind
+/// among the files a page engine reads, and the session on disk is the
+/// one place the old word survives.
+const RENAMED_KINDS: &[(&str, &str)] = &[("pdf", "paged")];
+
+/// Bring the tab kinds in a parsed session up to date. Returns how many.
+fn with_current_kinds(value: &mut serde_json::Value) -> usize {
+    let mut renamed = 0;
+    let Some(windows) = value
+        .get_mut("windows")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return 0;
+    };
+    for window in windows {
+        let Some(tabs) = window
+            .pointer_mut("/content/tabs")
+            .and_then(serde_json::Value::as_array_mut)
+        else {
+            continue;
+        };
+        for tab in tabs {
+            let Some(kind) = tab.get_mut("kind") else {
+                continue;
+            };
+            if let Some((_, now)) = RENAMED_KINDS.iter().find(|(then, _)| kind == then) {
+                *kind = serde_json::Value::String((*now).to_owned());
+                renamed += 1;
+            }
+        }
+    }
+    renamed
+}
+
+/// Parse a state file, reading the kinds an earlier build wrote as this
+/// build's. Settings have no tabs and pass straight through.
+fn parse<T: DeserializeOwned>(text: &str) -> serde_json::Result<T> {
+    let mut value: serde_json::Value = serde_json::from_str(text)?;
+    with_current_kinds(&mut value);
+    serde_json::from_value(value)
 }
 
 /// Parse again with any tab this build cannot show taken out of the way.
@@ -769,6 +818,7 @@ fn read<T: DeserializeOwned + Default>(path: &Path) -> T {
 /// which is what leaves the move-aside in charge of real corruption.
 fn without_unknown_tabs<T: DeserializeOwned>(text: &str) -> Option<(T, usize)> {
     let mut value: serde_json::Value = serde_json::from_str(text).ok()?;
+    with_current_kinds(&mut value);
     let mut dropped = 0;
     for window in value.get_mut("windows")?.as_array_mut()? {
         let Some(tabs) = window
@@ -1181,7 +1231,7 @@ mod tests {
         let tabs = &read.windows[0].content.tabs;
         assert_eq!(tabs.len(), 2);
         assert_eq!(tabs[0].kind, TabKind::Document);
-        assert_eq!(tabs[1].kind, TabKind::Pdf);
+        assert_eq!(tabs[1].kind, TabKind::Paged);
         // The file is still there: it parsed, so nothing was moved aside.
         assert!(path.exists());
         assert!(!dir.join("session.json.bad").exists());
@@ -1208,10 +1258,24 @@ mod tests {
         assert!(dir.join("session.json.bad").exists());
     }
 
+    /// ADR 0042: a PDF tab written by 0.2.0 says `pdf`, and it is the
+    /// same tab under a wider name, not one this build cannot show.
+    #[test]
+    fn a_session_from_before_the_rename_keeps_its_pdf_tabs() {
+        let dir = dir("session-renamed-kind");
+        let path = dir.join("session.json");
+        fs::write(&path, session_json(&["document", "pdf"])).expect("write");
+        let read: Session = super::read(&path);
+        let tabs = &read.windows[0].content.tabs;
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[1].kind, TabKind::Paged);
+        assert!(!dir.join("session.json.bad").exists());
+    }
+
     #[test]
     fn a_pdf_tab_keeps_the_page_it_was_left_on() {
         let tab = TabState {
-            kind: TabKind::Pdf,
+            kind: TabKind::Paged,
             page: Some(12),
             ..TabState::default()
         };

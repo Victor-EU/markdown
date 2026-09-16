@@ -73,14 +73,15 @@ export function tabLabels(
 }
 
 /**
- * Whether a path names a PDF (ADR 0035).
+ * Whether a path names a file a page engine reads rather than text: a
+ * PDF (ADR 0035), and from ADR 0042 the formats its registry lists.
  *
  * By extension, the way an image is recognised, and for the same reason:
  * this is asked of a path the OS handed over, before anything has been
  * read. A file whose name says nothing opens as a document, which is
  * what it has always done.
  */
-export function isPdfPath(path: string): boolean {
+export function isPagedPath(path: string): boolean {
   return /\.pdf$/i.test(path);
 }
 

@@ -1,5 +1,5 @@
-import type { PdfDoc } from './document.svelte.ts';
-import { type FindOptions, hitsInPage, type PdfHit, queryRegExp } from './find.ts';
+import type { PagedDoc } from './document.svelte.ts';
+import { type FindOptions, hitsInPage, type PagedHit, queryRegExp } from './find.ts';
 
 /**
  * The find bar's state over a PDF (ADR 0035).
@@ -10,8 +10,8 @@ import { type FindOptions, hitsInPage, type PdfHit, queryRegExp } from './find.t
  * through it while the walk is still going — the same bargain Read mode
  * makes with a long document.
  */
-export class PdfSearch {
-  hits = $state<PdfHit[]>([]);
+export class PagedSearch {
+  hits = $state<PagedHit[]>([]);
   /** Which hit the reader is on, as an index. -1 before they step. */
   at = $state(-1);
   /** True while pages are still being read. The bar shows `n+`. */
@@ -33,7 +33,7 @@ export class PdfSearch {
    * Search a document. Returns once every page has been read; the hits
    * appear as they are found, so the bar counts up rather than waiting.
    */
-  async run(pdf: PdfDoc, query: string, options: FindOptions = {}): Promise<void> {
+  async run(paged: PagedDoc, query: string, options: FindOptions = {}): Promise<void> {
     const pattern = queryRegExp(query, options);
     if (pattern === null) {
       this.clear();
@@ -45,9 +45,9 @@ export class PdfSearch {
     this.hits = [];
     this.at = -1;
     this.running = true;
-    const found: PdfHit[] = [];
-    for (let page = 1; page <= pdf.pages; page++) {
-      const runs = await pdf.text(page);
+    const found: PagedHit[] = [];
+    for (let page = 1; page <= paged.pages; page++) {
+      const runs = await paged.text(page);
       // The reader typed another letter, and these are answers to the
       // question before it.
       if (this.generation !== mine) return;
