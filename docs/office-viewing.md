@@ -1,8 +1,9 @@
 # Viewing Word and PowerPoint files
 
 Research and design note. Status: research and spike done 2026-09-16,
-library chosen (silurus, both formats), implementation scoped in ADR 0042,
-nothing built. The rendered comparison with screenshots is at
+library chosen (silurus, both formats), built the same day on the
+`office-viewing` branch; what building it changed is in ADR 0042's "As
+built". The rendered comparison with screenshots is at
 <https://claude.ai/artifact/XadmbzAYkiPGGTfAhHXYq8>; this file is the
 text of it plus the design it leads to, written down so it survives the
 session.

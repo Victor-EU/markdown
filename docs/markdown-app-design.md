@@ -392,7 +392,7 @@ Read mode is where most time is spent, so its defaults matter more than any sett
 
 - Cloud sync, accounts, collaboration.
 - A plugin system. Parser extensions are added in code.
-- Export to PDF or DOCX. HTML export is cheap and included; the others wait.
+- Export to PDF or DOCX. HTML export is cheap and included; the others wait. (Viewing a PDF, a Word document or a deck is in, read-only, since ADR 0035 and ADR 0042: an AI's deliverable for other humans is reviewed here and edited elsewhere.)
 - Wiki links, backlinks, graph views. This is not a knowledge base.
 - Mobile.
 - Any AI features inside the app. The app is the human's side of the loop. The AI lives elsewhere.

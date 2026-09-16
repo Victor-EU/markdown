@@ -409,3 +409,19 @@ fetch the library would have made, over the same protocol — and a deck
 with no slides is refused as well. The bundle opened an agent's ten-slide
 deck and a twenty-slide 2011 one through `open_document`, "Slide 1 of
 10" in the bar, each slide at its own width down the pane.
+
+**WP 5, fonts.** Registered through the `FontFace` API from
+`office-fonts.ts` rather than from a stylesheet, because the adapters
+have to await the faces before the engine lays a page out — layout
+measures them — and a promise is the natural shape of that. Eight faces
+from fontsource's Latin subsets, `local()` first, once per session and
+only when an adapter runs. The bundle set the memo in Carlito where the
+first one had set it in Arial, and the thesis came to 40 pages where the
+research note's probe had said it would. The test is stable on any
+machine: the faces are loaded, and Calibri measures narrower than Arial,
+which no substitution of one for the other would give.
+
+**WP 6, docs.** The design's waiting list keeps "export to PDF or DOCX"
+and says beside it that viewing all three is in. The research note
+points here. Nothing else in the tree describes formats by name, which
+is what the registry was for.

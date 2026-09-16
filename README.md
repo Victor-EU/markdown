@@ -5,7 +5,7 @@ Markdown viewer and editor for the AI round trip.
 - [Design](docs/markdown-app-design.md)
 - [Build plan](docs/markdown-app-build-plan.md)
 - [Decision records](docs/adr/)
-- [Viewing Word and PowerPoint files](docs/office-viewing.md), research and design, not yet built
+- [Viewing Word and PowerPoint files](docs/office-viewing.md), the research behind ADR 0042
 - [Releasing](docs/release.md)
 
 ## About
