@@ -1,5 +1,5 @@
 import { math } from '@silurus/ooxml/math';
-import { PptxPresentation } from '@silurus/ooxml/pptx';
+import { PptxPresentation, type PptxTextRunInfo } from '@silurus/ooxml/pptx';
 import {
   type OpenOptions,
   type PagedDocument,
@@ -27,6 +27,13 @@ import { failureOf, ooxmlBytes } from './silurus-docx.ts';
 
 /** English Metric Units to the point. */
 const EMU_PER_POINT = 12_700;
+/**
+ * The width `collectSlideRuns` renders at when it is not told one. The
+ * runs come back in EMU, which is the slide's own unit and not the
+ * raster's, so this decides how much painting the measurement costs
+ * and nothing about the answer.
+ */
+const RUN_WIDTH = 960;
 const WASM_URL = '/paged/pptx_parser_bg.wasm';
 const LIMITS = {
   resourceLimits: { maxTotalInflatedBytes: 512_000_000, maxArchiveEntries: 20_000 },
@@ -63,7 +70,26 @@ class SilurusPptxDocument implements PagedDocument {
   }
 
   async text(page: number): Promise<TextRun[]> {
-    const runs = await this.deck.collectSlideRuns(page - 1);
+    const runs: PptxTextRunInfo[] = [];
+    // `collectSlideRuns` is this, three lines shorter: it renders the
+    // slide and keeps the runs the renderer reports. What it renders
+    // into is an `OffscreenCanvas`, and not every WebKit this app runs
+    // on has one — Safari gained it in 16.4, so a Mac on the 12.0
+    // floor has not, and neither has the WebKit that Playwright builds
+    // for Windows, which is how this was found. A detached canvas
+    // element measures the same and exists everywhere.
+    const scratch = document.createElement('canvas');
+    try {
+      await this.deck.renderSlide(scratch, page - 1, {
+        width: RUN_WIDTH,
+        onTextRun: (run) => runs.push(run),
+      });
+    } finally {
+      // Megabytes of pixels nobody will look at: let go of them now
+      // rather than whenever the collector gets round to it.
+      scratch.width = 0;
+      scratch.height = 0;
+    }
     // A run's place is its shape's place plus its own inside the shape,
     // all in EMU whatever width the slide was drawn at.
     return runs.map((run) => ({

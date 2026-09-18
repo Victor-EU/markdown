@@ -84,6 +84,24 @@ describe('the PowerPoint engine', () => {
     }
   });
 
+  it('reads the text on a WebKit with no OffscreenCanvas', { timeout: 30_000 }, async () => {
+    // Safari gained `OffscreenCanvas` in 16.4, which is later than this
+    // app's macOS floor, and the WebKit that Playwright builds for
+    // Windows has none either — which is where this was found, as two
+    // red tests and no search results. Taking it away here is the cheap
+    // way to keep the adapter honest on the Macs nobody here has.
+    const doc = await open(deckUrl);
+    const real = globalThis.OffscreenCanvas;
+    Reflect.deleteProperty(globalThis, 'OffscreenCanvas');
+    try {
+      expect(globalThis.OffscreenCanvas).toBeUndefined();
+      const runs = await doc.text(2);
+      expect(runs.map((run) => run.text).join('')).toContain('stale');
+    } finally {
+      globalThis.OffscreenCanvas = real;
+    }
+  });
+
   it('refuses a file that is not a deck as corrupt', { timeout: 30_000 }, async () => {
     await expect(engine.open(notOoxmlUrl)).rejects.toSatisfy(
       (error: unknown) => error instanceof PagedError && error.reason === 'corrupt',
