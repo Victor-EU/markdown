@@ -43,14 +43,16 @@ export const commands = {
 	 */
 	allowDocumentImages: (path: string) => typedError<null, Error>(__TAURI_INVOKE("allow_document_images", { path })),
 	/**
-	 *  Take charge of a PDF, without reading a byte of it (ADR 0035).
+	 *  Take charge of a paged document — a PDF, and from ADR 0042 anything
+	 *  else a page engine reads — without reading a byte of it (ADR 0035).
 	 * 
 	 *  The two things the webview cannot ask, in one round trip: whether the
 	 *  file is there and small enough to take on, and — the answer being yes
 	 *  — permission to read it. The scope call is what `open_document` gets
-	 *  on the way past, and a PDF never goes through `open_document`, so it
-	 *  has to be asked for here or the asset protocol answers 403 and the
-	 *  pane stays blank.
+	 *  on the way past, and a paged file never goes through
+	 *  `open_document`, so it has to be asked for here or the asset protocol
+	 *  answers 403 and the pane stays blank. Rust does not know the formats:
+	 *  the webview's registry does, and this is the same call for all of them.
 	 */
 	openPaged: (path: string) => typedError<PagedInfo, Error>(__TAURI_INVOKE("open_paged", { path })),
 	/**
@@ -762,7 +764,10 @@ export type Override = {
 	measure?: number | null,
 };
 
-/**  What the shell learns about a PDF before it hands one to the renderer. */
+/**
+ *  What the shell learns about a paged file before it hands one to a
+ *  page engine.
+ */
 export type PagedInfo = {
 	byte_len: number,
 };
