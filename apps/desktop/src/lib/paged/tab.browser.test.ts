@@ -317,6 +317,27 @@ describe('the pane', () => {
   });
 });
 
+/**
+ * The fake, with a line of its own in each file, so a search can tell
+ * one file's answer from another's.
+ */
+function sayingEngine(words: Record<string, string>): PageEngine {
+  const inner = fakeEngine(2);
+  return {
+    async open(url: string, options?: OpenOptions): Promise<PagedDocument> {
+      const document = await inner.open(url, options);
+      const said = words[url.slice(url.lastIndexOf('/') + 1)] ?? '';
+      return {
+        ...document,
+        async text(): Promise<TextRun[]> {
+          return [{ text: said, rect: [10, 10, 60, 12] }];
+        },
+      };
+    },
+    destroy(): void {},
+  };
+}
+
 describe('find over a PDF', () => {
   it('searches the extracted text and steps through what it finds', async () => {
     open({ '/a/paper.pdf': '%PDF' }, 3);
@@ -344,6 +365,47 @@ describe('find over a PDF', () => {
     // counting matches in one nobody is looking at.
     await until(() => workspace.matches.total === 2 && !workspace.pagedSearch.running);
     expect(workspace.pagedSearch.at).toBe(-1);
+    expect(workspace.matches.total).toBe(2);
+  });
+
+  it('does not leave a closed tab’s matches on the one after it', async () => {
+    ipc = createFakeIpc({ '/a/one.pdf': '%PDF', '/a/two.pdf': '%PDF' });
+    workspace = new Workspace({
+      commands: ipc.commands,
+      pageEngines: { pdf: sayingEngine({ 'one.pdf': 'apple apple', 'two.pdf': 'apple' }) },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/one.pdf', '/a/two.pdf']);
+    workspace.activate(workspace.tabs[0]?.id ?? null);
+    await workspace.mountPaged(host);
+    workspace.openFind(false);
+    workspace.updateFind({ query: 'apple' });
+    await until(() => workspace.matches.total === 4 && !workspace.pagedSearch.running);
+    expect(workspace.findStep(true)).toBe(true);
+    workspace.close(workspace.tabs[0]?.id ?? '');
+    expect(workspace.activePaged?.label).toBe('two.pdf');
+    // Two pages of one `apple` each, and not the four the closed file
+    // had, nor the step through them.
+    await until(() => workspace.matches.total === 2 && !workspace.pagedSearch.running);
+    expect(workspace.matches.total).toBe(2);
+    expect(workspace.pagedSearch.at).toBe(-1);
+  });
+
+  it('asks the next tab even when the last one had nothing to find', async () => {
+    ipc = createFakeIpc({ '/a/one.pdf': '%PDF', '/a/two.pdf': '%PDF' });
+    workspace = new Workspace({
+      commands: ipc.commands,
+      pageEngines: { pdf: sayingEngine({ 'one.pdf': 'apple', 'two.pdf': 'pear' }) },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/one.pdf', '/a/two.pdf']);
+    workspace.activate(workspace.tabs[0]?.id ?? null);
+    workspace.openFind(false);
+    workspace.updateFind({ query: 'pear' });
+    await until(() => !workspace.pagedSearch.running);
+    expect(workspace.matches.total).toBe(0);
+    workspace.activate(workspace.tabs[1]?.id ?? null);
+    await until(() => workspace.matches.total === 2 && !workspace.pagedSearch.running);
     expect(workspace.matches.total).toBe(2);
   });
 

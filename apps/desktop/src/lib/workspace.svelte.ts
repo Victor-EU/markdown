@@ -1088,13 +1088,7 @@ export class Workspace {
     this.epoch += 1;
     this.activeId = id;
     this.countNow();
-    // A search is about one document, and a PDF's hits are page numbers
-    // in *that* PDF (ADR 0035). Carrying them to the next tab would
-    // count matches in a file nobody is looking at.
-    if (this.pagedSearch.hits.length > 0 || this.pagedSearch.running) {
-      this.pagedSearch.clear();
-      void this.runPagedSearch();
-    }
+    this.searchInFront();
     // The panel is about the document in front, so it follows it.
     if (this.sidebar && this.panel === 'history') void this.refreshHistory();
     this.touch();
@@ -1147,9 +1141,28 @@ export class Workspace {
       const next = this.tabs[Math.min(index, this.tabs.length - 1)];
       this.activeId = next?.id ?? null;
       this.countNow();
+      this.searchInFront();
     }
     this.touch();
     return { tab, doc, paged, index, alone };
+  }
+
+  /**
+   * Point an open find bar at the tab now in front.
+   *
+   * A search is about one document, and a PDF's hits are page numbers
+   * in *that* PDF (ADR 0035). Carrying them to the next tab would count
+   * matches in a file nobody is looking at, and step to places in it.
+   * So the walk starts again over the file in front, whether the last
+   * one found anything or not: what one file has says nothing about the
+   * next. A document in front needs only the old hits gone, because its
+   * editor is handed the query when it is mounted.
+   */
+  private searchInFront(): void {
+    // A closed bar has no search to carry: closing it cleared one.
+    if (!this.find.open) return;
+    this.pagedSearch.clear();
+    void this.runPagedSearch();
   }
 
   close(id: string): void {
