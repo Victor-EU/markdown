@@ -1143,14 +1143,27 @@ button.title:hover {
 /*
  * The text column is the reader's measure, exactly where Read mode puts
  * it, so switching modes moves nothing sideways and wraps no line
- * differently. CodeMirror counts its content box's padding inside the
- * box and pads every line 6px on the left and 2px on the right; the 56px
- * and the uneven padding here take those three back out.
+ * differently. CodeMirror pads every line 6px on the left and 2px on the
+ * right, and the 8px here are those two.
+ *
+ * The content box has no side padding of its own: CodeMirror draws a
+ * selection that spans lines out to that box's edges, and padding there
+ * painted it past the text on both sides. The gutter a narrow window
+ * keeps beside the text is the scroller's padding instead, uneven so
+ * that with the lines' own it comes to 28px on each side.
+ *
+ * Under the last line there is room for half a window, so the end of a
+ * document can be scrolled up to the middle of the page rather than
+ * staying pinned to its foot while the reader writes there.
  */
+.page > .cm-editor > .cm-scroller {
+  padding: 0 26px 0 22px;
+}
+
 .page .cm-content {
-  max-width: calc(var(--read-measure) + 56px);
+  max-width: calc(var(--read-measure) + 8px);
   margin: 0 auto;
-  padding: 32px 26px 32px 22px;
+  padding: 32px 0 50vh;
 }
 
 .page .cm-editor.cm-focused {
