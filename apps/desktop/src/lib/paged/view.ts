@@ -357,6 +357,28 @@ export class PagedView {
   }
 
   /**
+   * More of what Find has found, as the walk over the pages reads it.
+   *
+   * Only the pages these hits are on are marked again, so a walk over a
+   * thousand pages re-marks the few that are in the page, once each,
+   * rather than all of them once per page read. The hit the reader is
+   * on stays the one they are on: a step can come before the walk ends.
+   */
+  addHits(hits: readonly PagedHit[]): void {
+    const touched = new Set<number>();
+    for (const hit of hits) {
+      const held = this.hits.get(hit.page);
+      if (held) held.push(hit);
+      else this.hits.set(hit.page, [hit]);
+      touched.add(hit.page);
+    }
+    for (const page of touched) {
+      const live = this.live.get(page);
+      if (live) this.mark(page, live);
+    }
+  }
+
+  /**
    * Draw what Find found onto one page's text layer.
    *
    * The marks go *inside* the run rather than on it, because a run is

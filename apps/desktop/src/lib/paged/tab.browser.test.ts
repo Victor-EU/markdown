@@ -614,6 +614,57 @@ describe('pages that arrive as they are laid out (ADR 0042)', () => {
     expect(workspace.matches.current).toBe(1);
     expect(host.querySelectorAll('.paged-text mark.here')).toHaveLength(1);
   });
+
+  it('marks what the walk finds as it finds it, rather than when it is over', async () => {
+    ipc = createFakeIpc({ '/a/long.pdf': '%PDF' });
+    const growing = growingEngine(9);
+    workspace = new Workspace({
+      commands: ipc.commands,
+      pageEngines: { pdf: growing },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/long.pdf']);
+    await workspace.mountPaged(host);
+    workspace.openFind(false);
+    workspace.updateFind({ query: 'hello' });
+    // The engine holds the walk open once it has read the three pages
+    // laid out so far, so anything marked from here on was marked while
+    // the count was still climbing.
+    await until(() => workspace.pagedSearch.hits.length === 3);
+    await until(() => host.querySelector('.paged-page[data-page="1"] mark') !== null);
+    expect(workspace.pagedSearch.running).toBe(true);
+    expect(host.querySelector('.paged-page[data-page="1"] mark')?.textContent).toBe('hello');
+    // Page three was read while it was out of the window, and is marked
+    // when it is drawn rather than when the walk ends.
+    expect(host.querySelector('.paged-page[data-page="3"]')).toBeNull();
+    workspace.goToPage(3);
+    await until(() => host.querySelector('.paged-page[data-page="3"] mark') !== null);
+    expect(workspace.pagedSearch.running).toBe(true);
+    expect(host.querySelector('.paged-page[data-page="3"] mark')?.textContent).toBe('hello');
+  });
+
+  it('takes down the last question’s marks when the next one starts', async () => {
+    ipc = createFakeIpc({ '/a/long.pdf': '%PDF' });
+    const growing = growingEngine(9);
+    workspace = new Workspace({
+      commands: ipc.commands,
+      pageEngines: { pdf: growing },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/long.pdf']);
+    await workspace.mountPaged(host);
+    workspace.openFind(false);
+    workspace.updateFind({ query: 'hello' });
+    await until(() => host.querySelector('.paged-page[data-page="1"] mark') !== null);
+    workspace.updateFind({ query: 'page 2' });
+    // Held open again, so this is the new walk under way and not over.
+    const second = () => host.querySelector('.paged-page[data-page="2"] mark')?.textContent;
+    await until(() => second() === 'page 2');
+    expect(workspace.pagedSearch.running).toBe(true);
+    expect(second()).toBe('page 2');
+    // Page one's `hello` is not an answer to `page 2`.
+    expect(host.querySelector('.paged-page[data-page="1"] mark')).toBeNull();
+  });
 });
 
 describe('a format of its own (ADR 0042)', () => {

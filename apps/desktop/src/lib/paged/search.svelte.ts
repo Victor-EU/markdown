@@ -32,8 +32,16 @@ export class PagedSearch {
   /**
    * Search a document. Returns once every page has been read; the hits
    * appear as they are found, so the bar counts up rather than waiting.
+   * `onHits` is given each page's hits as they join the list, for the
+   * pane to mark: only what is new, so a long walk costs the pane the
+   * pages it has up and not a pass over every hit per page read.
    */
-  async run(paged: PagedDoc, query: string, options: FindOptions = {}): Promise<void> {
+  async run(
+    paged: PagedDoc,
+    query: string,
+    options: FindOptions = {},
+    onHits?: (found: readonly PagedHit[]) => void,
+  ): Promise<void> {
     const pattern = queryRegExp(query, options);
     if (pattern === null) {
       this.clear();
@@ -62,6 +70,7 @@ export class PagedSearch {
           found.push(...pageHits);
           // A new array each time: the bar watches the reference.
           this.hits = [...found];
+          onHits?.(pageHits);
         }
       }
       if (paged.complete) break;

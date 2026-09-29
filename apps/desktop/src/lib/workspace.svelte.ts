@@ -3072,20 +3072,25 @@ export class Workspace {
    *
    * Every keystroke starts a new walk and abandons the one before it,
    * which is what `PagedSearch` counts generations for. The marks follow
-   * the hits as they arrive, so a long document fills in rather than
-   * waiting.
+   * the hits as they arrive, a page's worth at a time, so a long
+   * document fills in rather than waiting.
    */
   private async runPagedSearch(): Promise<void> {
     const paged = this.activePaged;
     if (!paged) return;
     const { query, caseSensitive, wholeWord, regexp } = this.find;
+    // The marks up are answers to the last question, and the count is
+    // about to start again from nothing, so they go before it does.
+    this.pagedView?.setHits([], null);
     if (!this.find.open || query === '') {
       this.pagedSearch.clear();
-      this.pagedView?.setHits([], null);
       return;
     }
+    const options = { caseSensitive, wholeWord, regexp };
     try {
-      await this.pagedSearch.run(paged, query, { caseSensitive, wholeWord, regexp });
+      await this.pagedSearch.run(paged, query, options, (found) => {
+        if (this.activePaged === paged) this.pagedView?.addHits(found);
+      });
     } catch (error) {
       // A search that dies quietly reads as a document with no matches
       // in it, which is a worse lie than saying what went wrong.
@@ -3096,8 +3101,11 @@ export class Workspace {
     }
     if (this.activePaged !== paged || !this.pagedSearch.matches(query)) return;
     if (paged.failure !== null) this.status = `Some pages would not be read · ${paged.failure}`;
-    // The reader can step while the walk is still going, and the hit
-    // they stepped to is still the one they are on when it ends.
+    // Once more with the whole list, for a pane that went up after the
+    // walk began: a tab switch starts one before the pane is built, and
+    // the pages read before then were marked on no pane at all. The
+    // reader can step while the walk is still going, and the hit they
+    // stepped to is still the one they are on when it ends.
     const { hits, at } = this.pagedSearch;
     this.pagedView?.setHits(hits, hits[at] ?? null);
   }
