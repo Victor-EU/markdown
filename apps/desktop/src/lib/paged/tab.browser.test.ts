@@ -587,6 +587,33 @@ describe('pages that arrive as they are laid out (ADR 0042)', () => {
     await until(() => !workspace.pagedSearch.running);
     expect(workspace.matches.capped).toBe(false);
   });
+
+  it('keeps the hit the reader stepped to while the walk was still going', async () => {
+    ipc = createFakeIpc({ '/a/long.pdf': '%PDF' });
+    const growing = growingEngine(9);
+    workspace = new Workspace({
+      commands: ipc.commands,
+      pageEngines: { pdf: growing },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/long.pdf']);
+    await workspace.mountPaged(host);
+    workspace.openFind(false);
+    workspace.updateFind({ query: 'hello' });
+    // The walk has read the three pages there are and is waiting on the
+    // engine for the rest, so this step lands while it is still going.
+    await until(() => workspace.pagedSearch.hits.length === 3);
+    expect(workspace.findStep(true)).toBe(true);
+    await until(() => host.querySelector('.paged-text mark.here') !== null);
+    expect(host.querySelectorAll('.paged-text mark.here')).toHaveLength(1);
+    growing.grow[0]?.();
+    growing.grow[1]?.();
+    await until(() => !workspace.pagedSearch.running);
+    // The end of the walk marks the pages again, and the hit the reader
+    // is on has to come through that still marked as the one they are on.
+    expect(workspace.matches.current).toBe(1);
+    expect(host.querySelectorAll('.paged-text mark.here')).toHaveLength(1);
+  });
 });
 
 describe('a format of its own (ADR 0042)', () => {

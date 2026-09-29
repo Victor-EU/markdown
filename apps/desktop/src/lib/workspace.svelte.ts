@@ -3096,7 +3096,10 @@ export class Workspace {
     }
     if (this.activePaged !== paged || !this.pagedSearch.matches(query)) return;
     if (paged.failure !== null) this.status = `Some pages would not be read · ${paged.failure}`;
-    this.pagedView?.setHits(this.pagedSearch.hits, null);
+    // The reader can step while the walk is still going, and the hit
+    // they stepped to is still the one they are on when it ends.
+    const { hits, at } = this.pagedSearch;
+    this.pagedView?.setHits(hits, hits[at] ?? null);
   }
 
   /** The selection, when it is one line of it: what Cmd+F starts with. */
