@@ -409,6 +409,28 @@ describe('find over a PDF', () => {
     expect(workspace.matches.total).toBe(2);
   });
 
+  it('marks a pane that goes up after the search has read the file', async () => {
+    ipc = createFakeIpc({ '/a/one.pdf': '%PDF', '/a/two.pdf': '%PDF' });
+    workspace = new Workspace({
+      commands: ipc.commands,
+      pageEngines: { pdf: sayingEngine({ 'one.pdf': 'apple apple', 'two.pdf': 'apple' }) },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/one.pdf', '/a/two.pdf']);
+    workspace.activate(workspace.tabs[0]?.id ?? null);
+    await workspace.mountPaged(host);
+    workspace.openFind(false);
+    workspace.updateFind({ query: 'apple' });
+    await until(() => workspace.matches.total === 4 && !workspace.pagedSearch.running);
+    workspace.close(workspace.tabs[0]?.id ?? '');
+    // Closing starts the walk over the next file, and a file already
+    // read is walked before the pane for it can be built.
+    await until(() => workspace.matches.total === 2 && !workspace.pagedSearch.running);
+    await workspace.mountPaged(host);
+    await until(() => host.querySelectorAll('.paged-text mark').length === 2);
+    expect(host.querySelectorAll('.paged-text mark')).toHaveLength(2);
+  });
+
   it('never offers replace, because a PDF is read here and never written', async () => {
     open({ '/a/paper.pdf': '%PDF' });
     await workspace.openPaths(['/a/paper.pdf']);
@@ -671,7 +693,7 @@ describe('pages that arrive as they are laid out (ADR 0042)', () => {
     growing.grow[0]?.();
     growing.grow[1]?.();
     await until(() => !workspace.pagedSearch.running);
-    // The end of the walk marks the pages again, and the hit the reader
+    // The rest of the walk marks what it finds, and the hit the reader
     // is on has to come through that still marked as the one they are on.
     expect(workspace.matches.current).toBe(1);
     expect(host.querySelectorAll('.paged-text mark.here')).toHaveLength(1);
@@ -703,6 +725,24 @@ describe('pages that arrive as they are laid out (ADR 0042)', () => {
     await until(() => host.querySelector('.paged-page[data-page="3"] mark') !== null);
     expect(workspace.pagedSearch.running).toBe(true);
     expect(host.querySelector('.paged-page[data-page="3"] mark')?.textContent).toBe('hello');
+  });
+
+  it('marks a pane that goes up while the walk is still going', async () => {
+    ipc = createFakeIpc({ '/a/long.pdf': '%PDF' });
+    const growing = growingEngine(9);
+    workspace = new Workspace({
+      commands: ipc.commands,
+      pageEngines: { pdf: growing },
+      assetUrl: (p) => p,
+    });
+    await workspace.openPaths(['/a/long.pdf']);
+    workspace.openFind(false);
+    workspace.updateFind({ query: 'hello' });
+    await until(() => workspace.pagedSearch.hits.length === 3);
+    await workspace.mountPaged(host);
+    await until(() => host.querySelector('.paged-page[data-page="1"] mark') !== null);
+    expect(workspace.pagedSearch.running).toBe(true);
+    expect(host.querySelector('.paged-page[data-page="1"] mark')?.textContent).toBe('hello');
   });
 
   it('takes down the last question’s marks when the next one starts', async () => {

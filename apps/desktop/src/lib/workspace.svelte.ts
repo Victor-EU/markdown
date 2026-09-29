@@ -1641,6 +1641,13 @@ export class Workspace {
         this.status = message;
       },
     });
+    // What Find has found in this file so far: the search is always
+    // about the file in front (`searchInFront`). The walk can start
+    // before there is a pane to mark — changing or closing a tab starts
+    // it before the next file's pane is built — and it hands the pane
+    // only the pages it reads from then on.
+    const { hits, at } = this.pagedSearch;
+    view.setHits(hits, hits[at] ?? null);
     this.viewing = { view, tab };
     this.pagedPage = view.page;
     this.pagedZoom = view.scale;
@@ -3114,13 +3121,6 @@ export class Workspace {
     }
     if (this.activePaged !== paged || !this.pagedSearch.matches(query)) return;
     if (paged.failure !== null) this.status = `Some pages would not be read · ${paged.failure}`;
-    // Once more with the whole list, for a pane that went up after the
-    // walk began: a tab switch starts one before the pane is built, and
-    // the pages read before then were marked on no pane at all. The
-    // reader can step while the walk is still going, and the hit they
-    // stepped to is still the one they are on when it ends.
-    const { hits, at } = this.pagedSearch;
-    this.pagedView?.setHits(hits, hits[at] ?? null);
   }
 
   /** The selection, when it is one line of it: what Cmd+F starts with. */
