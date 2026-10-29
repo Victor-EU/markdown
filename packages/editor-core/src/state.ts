@@ -29,6 +29,7 @@ import {
   previewOptions,
 } from './preview/index.ts';
 import { findExtensions } from './search/index.ts';
+import { textSelection } from './selection.ts';
 
 /** Edit is live preview; Source is the same buffer with decorations off (design 4.2). */
 export type EditorMode = 'edit' | 'source';
@@ -149,7 +150,12 @@ export function baseExtensions(
     // change when the mode does.
     previewOptions.of(preview),
     history(),
+    // CodeMirror's for the caret; ours for the selection, which is drawn
+    // on the text and over code rather than across the column and under
+    // it (ADR 0043). Outside the mode compartment: Source mode selects
+    // the same way.
     drawSelection(),
+    textSelection(),
     highlightSpecialChars(),
     EditorView.lineWrapping,
     // The webview's own spell check, which is the one the reader already

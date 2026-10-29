@@ -385,6 +385,7 @@ Read mode is where most time is spent, so its defaults matter more than any sett
 - Four curated themes, each in light and dark, following the system by default. Page background is its own setting within a theme: white, cream, yellow pad, and black for high contrast, since paper color changes reading comfort more than most people expect. Theme, background, family, size, and measure are app settings. A per-document override is stored in app data keyed by path, so a reader can give one report a serif and a wider measure without the file knowing.
 - Tables get row striping, aligned numerics, and horizontal scroll inside their own container rather than widening the page.
 - Code blocks get a language label, a copy button, and line wrapping on by default because AI output often has long lines.
+- In Edit and Source mode a selection is drawn on the text: each line only as wide as what is selected on it, a paragraph as one shape, and over code as plainly as over paper (ADR 0043).
 
 ---
 
