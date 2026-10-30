@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildManifest, parseArgs, parsePair, signedArtifact } from './manifest.mjs';
+import { buildManifest, notesFrom, parseArgs, parsePair, signedArtifact } from './manifest.mjs';
 
 const base = 'https://github.com/o/r/releases/download/v0.2.0';
 
@@ -190,5 +190,45 @@ describe('the command line', () => {
 
   it('will not build half a manifest', () => {
     expect(() => parseArgs(['--version', '0.2.0'])).toThrow(/missing --base-url/);
+  });
+});
+
+describe('the notes an updating app is shown (ADR 0044)', () => {
+  // The shape every release since 0.3.0 has had: what changed, then how
+  // to get it.
+  const body = [
+    '## Find in PDFs',
+    '',
+    '- **Matches are highlighted as they are found.** Page by page.',
+    '',
+    '## Downloads',
+    '',
+    '| Platform | File |',
+    '|---|---|',
+    '| macOS | `Markdown_0.3.2_universal.dmg` |',
+    '',
+    'Installed copies of 0.3.1 are offered this update in the status bar.',
+    '',
+    '**Full Changelog**: https://github.com/o/r/compare/v0.3.1...v0.3.2',
+  ].join('\r\n');
+
+  it('are what changed, and stop where the downloads start', () => {
+    expect(notesFrom(body)).toBe(
+      '## Find in PDFs\n\n- **Matches are highlighted as they are found.** Page by page.',
+    );
+  });
+
+  it('are the whole body when it has no downloads section', () => {
+    expect(notesFrom('\n- One fix.\n- Another.\n\n')).toBe('- One fix.\n- Another.');
+  });
+
+  it('find the section whatever level or case it is written at', () => {
+    expect(notesFrom('- A fix.\n\n### downloads\n\nthe table')).toBe('- A fix.');
+    // A heading that only mentions downloads is part of the notes.
+    expect(notesFrom('## Faster downloads\n\n- Yes.')).toBe('## Faster downloads\n\n- Yes.');
+  });
+
+  it('are nothing when the body is only downloads', () => {
+    expect(notesFrom('## Downloads\n\nthe table')).toBe('');
   });
 });

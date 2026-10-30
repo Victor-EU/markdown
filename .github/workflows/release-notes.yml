@@ -1,0 +1,54 @@
+name: Release notes
+
+# The notes an installed app shows before it updates (ADR 0044) are the
+# `notes` field of the release's `latest.json`. `release.yml` uploads that
+# manifest with the bundles, before anyone has written the notes — they
+# are written by hand on the draft — so this puts them in once there are
+# some: when the draft is published, and again whenever a published
+# release's notes are edited. GitHub sends neither event for a draft.
+#
+# Only `notes` changes. The signatures in the manifest are over the
+# artifacts, and the artifacts are not touched.
+on:
+  release:
+    types: [published, edited]
+
+concurrency:
+  group: release-notes-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    name: put the notes in the manifest
+    runs-on: ubuntu-24.04
+    steps:
+      # Pinned to a commit, for the reason `release.yml` gives.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Plain Node and `gh`, both already on the runner: the script has no
+      # dependencies, so there is nothing to install.
+      - name: Rewrite latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          BODY: ${{ github.event.release.body }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/notes"
+          mkdir -p "$dir"
+          # A release without a manifest is one the updater never reads,
+          # such as one made by hand: nothing to do.
+          if ! gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --pattern latest.json --dir "$dir"; then
+            echo "$TAG has no latest.json; leaving it alone"
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$dir/body.md"
+          node tools/release/notes.mjs --manifest "$dir/latest.json" \
+            --body-file "$dir/body.md" --out "$dir/latest.json"
+          gh release upload "$TAG" "$dir/latest.json" --repo "$GITHUB_REPOSITORY" --clobber
+          cat "$dir/latest.json"

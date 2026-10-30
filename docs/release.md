@@ -149,10 +149,25 @@ Then, by hand:
 - Download the `.dmg` and open it on a machine that did not build it.
   This is the only check that catches a signing or notarization problem,
   because the machine that built it trusts it either way.
-- Write the release notes.
+- Write the release notes. What comes before a `## Downloads` heading is
+  what an installed app shows the reader before it updates, so write
+  that part for someone who already has the app; the downloads table and
+  everything after it are for the release page only.
 - **Publish the draft.** That is the moment
   `releases/latest/download/latest.json` starts resolving and every
-  running copy of the app is offered the update.
+  running copy of the app is offered the update. Publishing also starts
+  `release-notes.yml`, which copies the notes into `latest.json` (the
+  build uploaded it with none, because they did not exist yet) and does
+  it again whenever the published notes are edited. For the half minute
+  that takes, an app that checks sees the update without notes. To have
+  them in from the first second, put them in before publishing:
+
+  ```bash
+  gh release view v0.2.0 --json body -q .body > body.md
+  gh release download v0.2.0 --pattern latest.json
+  pnpm release:notes --manifest latest.json --body-file body.md --out latest.json
+  gh release upload v0.2.0 latest.json --clobber
+  ```
 
 ### The two names macOS goes out under
 
@@ -181,16 +196,30 @@ still install it — the download is on disk by then.
 
 ## 4. What the app does with all this
 
-- On launch, ten seconds in, and every six hours after that, the window
-  asks the endpoint whether there is something newer. If there is not, or
-  if the network is not there, it says nothing.
-- If there is, the status bar grows one cell: *Version 0.2.0 is
-  available*. Pressing it downloads; pressing it again restarts.
-- **Check for Updates…** in the palette does the same thing on demand and
-  reports back either way. It is also on the Settings tab, next to the
-  version.
-- A restart flushes whatever is pending first, so an autosave still on
-  its timer is not lost to the relaunch.
+Since ADR 0044 the update is the app's rather than each window's: Rust
+checks, downloads and restarts, and every window shows the same state.
+
+- Ten seconds after launch, and then every hour, the app looks at when
+  the endpoint last answered a check. If that was a day ago or more, it
+  asks again. Up to date, or no network: it says nothing. The time is in
+  `update-check.json` in the app data directory.
+- If there is something newer, the status bar grows one cell: *Version
+  0.2.0 is available*. Pressing it opens Settings at About, which shows
+  the release notes and an **Install update** button. The download's
+  progress is in the cell and beside the button; then *Version 0.2.0 is
+  ready — restart to finish*, and pressing either restarts.
+- **Check for Updates…** is in the application menu under About on
+  macOS, and in the palette everywhere. It reports back either way, in
+  the status line, including why a check failed: offline, no answer from
+  the server, no build for this computer.
+- A download whose signature does not match the key compiled into the
+  app is refused and nothing is changed; the update is offered again.
+- On macOS and Linux the new version is put in place as soon as it has
+  downloaded, so quitting instead of restarting also ends on it. On
+  Windows the installer runs when the app restarts.
+- The restart is a quit: every window writes down what it holds, the
+  session is saved, and the new version opens with the same windows and
+  tabs.
 
 ---
 

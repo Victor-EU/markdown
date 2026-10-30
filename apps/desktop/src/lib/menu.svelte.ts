@@ -39,6 +39,13 @@ function item(command: Command, enabled: boolean): MenuEntry {
  * for it.
  */
 const SETTINGS = 'file.settings';
+/**
+ * The same move for the update check (ADR 0044): registered under Help,
+ * where the palette groups it, and shown on macOS where a Mac app keeps
+ * it, under About. Install and Restart stay in Help, greyed out until
+ * there is something to install or restart into.
+ */
+const CHECK_UPDATES = 'help.checkUpdates';
 /** Read as one pair at the top of Edit, above the clipboard. */
 const HISTORY = ['edit.undo', 'edit.redo'];
 /** The other paste, which sits beside the standard one (ADR 0041). */
@@ -56,11 +63,13 @@ export function menuBar(registry: CommandRegistry): MenuSection[] {
       .map((command) => item(command, registry.isEnabled(command)));
   const settings = entries('File', (command) => command.id === SETTINGS);
   const history = entries('Edit', (command) => HISTORY.includes(command.id));
+  const updates = entries('Help', (command) => command.id === CHECK_UPDATES);
   return [
     {
       title: 'Markdown',
       items: [
         standard('about'),
+        ...updates,
         SEPARATOR,
         ...settings,
         ...(settings.length > 0 ? [SEPARATOR] : []),
@@ -105,7 +114,7 @@ export function menuBar(registry: CommandRegistry): MenuSection[] {
       title: 'Window',
       items: [standard('minimize'), standard('zoom'), SEPARATOR, standard('bring_all_to_front')],
     },
-    { title: 'Help', items: entries('Help') },
+    { title: 'Help', items: entries('Help', (command) => command.id !== CHECK_UPDATES) },
   ];
 }
 

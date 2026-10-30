@@ -558,14 +558,15 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: () => workspace.agent.port !== 0,
       run: () => workspace.rotateAgentToken(),
     },
-    // The updater (plan WP 1.12). The status bar offers the same two
-    // actions where they can be seen; these are so the keyboard can
-    // reach them, and so the palette says what the app can do.
+    // The updater (plan WP 1.12, ADR 0044). The status bar offers the
+    // install and the restart where they can be seen; these are so the
+    // keyboard can reach them, and so the palette says what the app can
+    // do. On macOS the check is in the application menu, under About.
     {
       id: 'help.checkUpdates',
       title: 'Check for Updates…',
       group: 'Help',
-      run: () => workspace.checkForUpdates(true),
+      run: () => workspace.checkForUpdates(),
     },
     {
       id: 'help.installUpdate',

@@ -9,6 +9,7 @@
 
 pub mod mcp;
 pub mod menu;
+pub mod update;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1981,6 +1982,10 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             set_menu,
             show_context_menu,
             clipboard_text,
+            update::update_state,
+            update::check_for_update,
+            update::install_update,
+            update::restart_to_update,
         ])
         .events(collect_events![
             ExternalChangeEvent,
@@ -1995,7 +2000,8 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             BeforeCloseEvent,
             AgentAskEvent,
             AgentStatusEvent,
-            MenuCommandEvent
+            MenuCommandEvent,
+            update::UpdateEvent
         ])
 }
 
@@ -2082,6 +2088,8 @@ fn start(app: &tauri::App) {
     // Last, because it is the one service nothing else waits for: the
     // windows are up and answering by the time an agent can ask.
     start_agent_server(&handle);
+    // The daily look for a newer release, which waits a moment anyway.
+    update::start(&handle);
 }
 
 /// Turn a second launch into a message to the one already running.
@@ -2120,11 +2128,11 @@ pub fn run(context: tauri::Context) {
         // Links in Read mode open in the system browser; the webview never
         // navigates away from the app (design 6.2).
         .plugin(tauri_plugin_opener::init())
-        // The updater and the restart it ends with (plan WP 1.12). The
-        // check itself is made from the webview, which is where the
-        // reader can be told about it; Rust only carries the plugin.
+        // The updater (plan WP 1.12), driven from `update` rather than
+        // from a webview, because the update is the app's and not a
+        // window's (ADR 0044).
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+        .manage(update::Updates::default())
         // Only for reading the clipboard's text on the Rust side, which
         // is where Paste and Match Style has to read it (ADR 0041).
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -2167,6 +2175,8 @@ pub fn run(context: tauri::Context) {
         tauri::RunEvent::Exit => {
             persist(app);
             close_the_endpoint(app);
+            // Last: a restart for an update never returns.
+            update::finish(app);
         }
         _ => {}
     });

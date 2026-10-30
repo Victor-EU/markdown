@@ -1,63 +1,38 @@
+import type { Result, UpdateFailure, UpdateState } from '@markdown/ipc';
+
 /**
- * The updater (plan WP 1.12, section 12).
+ * The updater (plan WP 1.12, ADR 0017, ADR 0044).
  *
- * The design does not mention updates at all, and the plan adds them for
- * one reason: a build that is being dogfooded has to be able to carry a
- * fix to the person testing it. So this is deliberately the smallest
- * updater that does that — check, tell, install, restart — with no
- * settings, no channels, and nothing to dismiss.
+ * The update is the app's, not a window's: Rust checks, downloads and
+ * restarts, and every window is told each time it moves on (ADR 0044).
+ * What is here is what a window does with that — the sentences, and
+ * which of them can be pressed.
  *
- * The rule that shapes it is that an update the reader did not ask about
- * is never allowed to interrupt. An automatic check that finds nothing,
- * or that cannot reach the network, says nothing at all; only a check the
- * reader asked for reports back either way. Nothing installs itself.
+ * The rule that shapes it is still ADR 0017's: an update the reader did
+ * not ask about is never allowed to interrupt. The daily check is Rust's
+ * and says nothing unless it finds something; only a check the reader
+ * asked for reports back either way. Nothing installs itself.
  */
 
-/** An update the endpoint offered, as much of it as the app shows. */
-export interface Available {
-  version: string;
-  /** The release notes from the manifest, when it carries any. */
-  notes?: string;
-}
-
 /**
- * What the app needs from the updater plugin, so that a test can hand it
- * something else. The real one is `tauriUpdater`, built in `main.ts`;
- * everything below this line is reachable without Tauri.
+ * What the window needs from the app's updater, so that a test can hand
+ * it something else. The real one is the IPC commands, put together in
+ * `main.ts`; outside Tauri there is none.
  */
 export interface Updater {
-  check: () => Promise<Available | null>;
-  /**
-   * Download and install. `onProgress` receives a fraction between 0 and
-   * 1, or `null` while the size is not yet known — a server that sends no
-   * content length is a bar that cannot be drawn, not an error.
-   */
-  install: (onProgress: (fraction: number | null) => void) => Promise<void>;
-  relaunch: () => Promise<void>;
+  /** Where the update stands, for a window that has just opened. */
+  state: () => Promise<UpdateState>;
+  /** Ask now. Answers with where the update stands afterwards. */
+  check: () => Promise<Result<UpdateState, UpdateFailure>>;
+  /** Download what the check found, verify it and put it in place. */
+  install: () => Promise<Result<null, UpdateFailure>>;
+  /** Quit the way Quit does, and come back as the new version. */
+  restart: () => Promise<void>;
+  /** Every change from here on, wherever it was asked for. */
+  listen: (on: (state: UpdateState) => void) => void;
 }
 
-export type UpdateState =
-  | { phase: 'idle' }
-  | { phase: 'checking' }
-  /** Checked, and this is the newest build there is. */
-  | { phase: 'none' }
-  | { phase: 'available'; update: Available }
-  | { phase: 'installing'; update: Available; fraction: number | null }
-  /** On disk and waiting for the restart that swaps it in. */
-  | { phase: 'ready'; update: Available }
-  | { phase: 'failed'; message: string };
-
 export const IDLE: UpdateState = { phase: 'idle' };
-
-/**
- * How often a running app looks. Six hours is often enough that a fix
- * reaches a tester the same day and rare enough that a window left open
- * over a weekend makes four requests, not four hundred.
- */
-export const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-
-/** A moment after the window is up, so the check never delays first paint. */
-export const FIRST_CHECK_DELAY_MS = 10_000;
 
 function percent(fraction: number): string {
   return `${Math.round(fraction * 100)}%`;
@@ -66,102 +41,73 @@ function percent(fraction: number): string {
 /**
  * The standing sentence: what the status bar keeps showing for as long as
  * an update is in play. Empty when there is nothing to stand there for —
- * a check in progress is not news, and neither is being up to date.
+ * being up to date is not news.
  */
 export function describeUpdate(state: UpdateState): string {
   switch (state.phase) {
     case 'available':
-      return `Version ${state.update.version} is available`;
-    case 'installing':
+      return `Version ${state.release.version} is available`;
+    case 'downloading':
       return state.fraction === null
-        ? `Downloading ${state.update.version}…`
-        : `Downloading ${state.update.version} — ${percent(state.fraction)}`;
+        ? `Downloading ${state.release.version}…`
+        : `Downloading ${state.release.version} — ${percent(state.fraction)}`;
     case 'ready':
-      return `Version ${state.update.version} is ready — restart to finish`;
+      return `Version ${state.release.version} is ready — restart to finish`;
     default:
       return '';
   }
 }
 
-/** What pressing that sentence does, when pressing it does anything. */
-export function updateAction(state: UpdateState): 'install' | 'restart' | null {
-  if (state.phase === 'available') return 'install';
+/**
+ * What pressing that sentence does, when pressing it does anything. An
+ * available update is shown before it is fetched: pressing goes to the
+ * About section, where its notes are and where Install is. A ready one
+ * has been read already, so pressing it restarts.
+ */
+export function updateAction(state: UpdateState): 'show' | 'restart' | null {
+  if (state.phase === 'available') return 'show';
   if (state.phase === 'ready') return 'restart';
   return null;
 }
 
 /**
  * What a check the reader asked for reports in the transient status line.
- *
- * The same states are silent after an automatic check, which is the whole
- * difference between the two: `reportCheck` is only ever called for a
- * check somebody pressed.
+ * Only that there is nothing new: anything else is already the standing
+ * sentence in the cell beside it, and saying it twice in one bar is
+ * telling the reader what they are looking at.
  */
 export function reportCheck(state: UpdateState): string {
-  switch (state.phase) {
-    case 'checking':
-      return 'Checking for updates…';
-    case 'none':
-      return 'Markdown is up to date';
-    case 'failed':
-      return `Could not check for updates — ${state.message}`;
-    case 'available':
-      return `Version ${state.update.version} is available`;
-    default:
-      return '';
-  }
-}
-
-/** A thrown anything, as a sentence short enough for the status line. */
-export function reason(error: unknown): string {
-  const text = error instanceof Error ? error.message : String(error);
-  const first = text.split('\n')[0]?.trim() ?? '';
-  return first === '' ? 'the check failed' : first;
+  return state.phase === 'idle' ? 'Markdown is up to date' : '';
 }
 
 /**
- * The plugin, behind the interface above. Only `main.ts` calls this, and
- * only under Tauri; the import is dynamic so a browser build — which is
- * what the tests and `pnpm dev` run — never loads it.
+ * Why it did not work, in words a reader can act on — or at least not be
+ * puzzled by. The kind comes from Rust, which still had the plugin's
+ * error as a type; the words are here, beside every other sentence the
+ * window says.
  */
-export function tauriUpdater(): Updater {
-  // The checked update has to survive from the check to the install,
-  // because the plugin hands back a resource handle, not a description.
-  let pending: {
-    downloadAndInstall: (onEvent: (e: DownloadEvent) => void) => Promise<void>;
-  } | null = null;
-  return {
-    async check() {
-      const { check } = await import('@tauri-apps/plugin-updater');
-      const found = await check();
-      pending = found;
-      if (!found) return null;
-      return { version: found.version, notes: found.body };
-    },
-    async install(onProgress) {
-      if (!pending) throw new Error('nothing to install');
-      let total: number | null = null;
-      let sofar = 0;
-      await pending.downloadAndInstall((event) => {
-        if (event.event === 'Started') {
-          total = event.data.contentLength ?? null;
-          onProgress(total === null ? null : 0);
-        } else if (event.event === 'Progress') {
-          sofar += event.data.chunkLength;
-          onProgress(total === null ? null : Math.min(1, sofar / total));
-        } else {
-          onProgress(1);
-        }
-      });
-    },
-    async relaunch() {
-      const { relaunch } = await import('@tauri-apps/plugin-process');
-      await relaunch();
-    },
-  };
+export function failureReason(failure: UpdateFailure): string {
+  switch (failure.kind) {
+    case 'not_installed':
+      return 'this build is not an installed app';
+    case 'offline':
+      return 'you seem to be offline';
+    case 'no_release':
+      return 'the update server did not answer properly';
+    case 'no_build':
+      return 'the release has no build for this computer';
+    case 'unverified':
+      return 'the download could not be verified';
+    case 'cancelled':
+      return 'the password prompt was cancelled';
+    case 'other':
+      return failure.message === '' ? 'something went wrong' : failure.message;
+  }
 }
 
-type DownloadEvent =
-  | { event: 'Started'; data: { contentLength?: number } }
-  | { event: 'Progress'; data: { chunkLength: number } }
-  | { event: 'Finished' };
+/** A thrown anything, as a phrase short enough for the status line. */
+export function reason(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  const first = text.split('\n')[0]?.trim() ?? '';
+  return first === '' ? 'something went wrong' : first;
+}

@@ -15,7 +15,6 @@ import { isMac } from './lib/platform.ts';
 import { createEnhancer } from './lib/read/enhance.ts';
 import { createShell } from './lib/shell.svelte.ts';
 import { watchFullScreen } from './lib/titlebar.ts';
-import { tauriUpdater } from './lib/update.ts';
 
 const FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdx', 'txt'] }];
 /**
@@ -61,10 +60,20 @@ const shell = createShell({
   // widens to each opened file's folder (design 8). Outside Tauri
   // nothing local loads.
   assetUrl: isTauri() ? (path) => convertFileSrc(path) : undefined,
-  // Only the installed app has anywhere to update from: a dev build's
-  // version is whatever the config says, and the endpoint would answer
-  // every launch with the release that is already running.
-  updater: isTauri() && import.meta.env.PROD ? tauriUpdater() : undefined,
+  // The app's updater, which is Rust's (ADR 0044): the window asks and
+  // listens. Rust is also what knows a `tauri dev` build has nothing to
+  // update, and says so when asked.
+  updater: isTauri()
+    ? {
+        state: commands.updateState,
+        check: commands.checkForUpdate,
+        install: commands.installUpdate,
+        restart: commands.restartToUpdate,
+        listen: (on) => {
+          void events.updateEvent.listen((event) => on(event.payload));
+        },
+      }
+    : undefined,
   // Nothing draws the window's name now that the tabs are where it used
   // to be, but the Window menu and Mission Control still read it.
   setTitle: isTauri()

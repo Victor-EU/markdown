@@ -318,6 +318,26 @@ export const commands = {
 	 *  menu reaches it as an event, outside any.
 	 */
 	clipboardText: () => __TAURI_INVOKE<string | null>("clipboard_text"),
+	/**  Where the update stands, for a window that has just opened. */
+	updateState: () => __TAURI_INVOKE<UpdateState>("update_state"),
+	/**
+	 *  Check now, because the reader asked. Answers with where the update
+	 *  stands afterwards, which the window reports either way.
+	 * 
+	 *  # Errors
+	 *  Why the check did not get an answer.
+	 */
+	checkForUpdate: () => typedError<UpdateState, UpdateFailure>(__TAURI_INVOKE("check_for_update")),
+	/**
+	 *  Download and put in place what the last check found.
+	 * 
+	 *  # Errors
+	 *  Why the download or the install did not go through. The update is
+	 *  offered again either way.
+	 */
+	installUpdate: () => typedError<null, UpdateFailure>(__TAURI_INVOKE("install_update")),
+	/**  Quit and come back as the new version, once one is ready. */
+	restartToUpdate: () => __TAURI_INVOKE<void>("restart_to_update"),
 };
 
 /** Events */
@@ -335,6 +355,7 @@ export const events = {
 	searchProgressEvent: makeEvent<SearchProgressEvent>("search-progress-event"),
 	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
 	tabArrivedEvent: makeEvent<TabArrivedEvent>("tab-arrived-event"),
+	updateEvent: makeEvent<UpdateEvent>("update-event"),
 };
 
 /* Types */
@@ -798,6 +819,13 @@ export type ReadOnly =
 /**  Over [`EDITABLE_BYTES`], so it opens in Read mode only. */
 "size";
 
+/**  A release the endpoint offered, as much of it as a window shows. */
+export type Release = {
+	version: string,
+	/**  The release notes, as markdown. Empty when the manifest has none. */
+	notes: string,
+};
+
 /**
  *  What a window asks for when it starts.
  * 
@@ -1077,6 +1105,51 @@ export type Untitled = {
 	name: string,
 	text: string,
 };
+
+/**  The update changed. Sent to every window, because it is the app's. */
+export type UpdateEvent = UpdateState;
+
+/**  Why a check or a download did not go through. */
+export type UpdateFailure = 
+/**  A build run by `tauri dev`, which has no bundle to replace. */
+{ kind: "not_installed" } | 
+/**  The endpoint could not be reached at all. */
+{ kind: "offline" } | 
+/**
+ *  The endpoint answered, but not with a release: an error status, a
+ *  manifest that does not parse, a download that is not there.
+ */
+{ kind: "no_release" } | 
+/**  The release has nothing built for this computer. */
+{ kind: "no_build" } | 
+/**
+ *  The download does not carry the signature of the key this build
+ *  trusts. Nothing was installed.
+ */
+{ kind: "unverified" } | 
+/**
+ *  The system asked for a password to replace the app, and was not
+ *  given one.
+ */
+{ kind: "cancelled" } | 
+/**  Anything else, in the plugin's words. */
+{ kind: "other"; message: string };
+
+/**  Where the update stands, the same in every window. */
+export type UpdateState = 
+/**  Nothing to offer: not checked yet, or checked and up to date. */
+{ phase: "idle" } | { phase: "available"; release: Release } | { phase: "downloading"; release: Release; 
+/**
+ *  From 0 to 1, or absent while the server has not said how big
+ *  the download is.
+ */
+fraction: number | null } | 
+/**
+ *  Downloaded and verified. On macOS and Linux it is also in place,
+ *  so the next launch is the new version whichever way it comes; on
+ *  Windows the installer runs on the restart.
+ */
+{ phase: "ready"; release: Release };
 
 /**
  *  What a window's own webview knows about itself. The frontend owns

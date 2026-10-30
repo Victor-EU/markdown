@@ -92,8 +92,26 @@ describe('the menu bar', () => {
   });
 
   it('puts Settings in the application menu, where macOS keeps it', () => {
-    expect(ids(menu(bar(), 'Markdown'))).toEqual(['file.settings']);
+    expect(ids(menu(bar(), 'Markdown'))).toContain('file.settings');
     expect(ids(menu(bar(), 'File'))).not.toContain('file.settings');
+  });
+
+  it('checks for updates from under About, where a Mac app keeps it (ADR 0044)', () => {
+    expect(lines(menu(bar(), 'Markdown')).slice(0, 5)).toEqual([
+      'about',
+      'help.checkUpdates',
+      'separator',
+      'file.settings',
+      'separator',
+    ]);
+    expect(command(menu(bar(), 'Markdown'), 'help.checkUpdates')).toMatchObject({
+      title: 'Check for Updates…',
+      enabled: true,
+    });
+    // Once, not also under Help where the palette groups it.
+    const everywhere = bar().flatMap((section) => ids(section.items));
+    expect(everywhere.filter((id) => id === 'help.checkUpdates')).toHaveLength(1);
+    expect(ids(menu(bar(), 'Help'))).toEqual(['help.installUpdate', 'help.restart']);
   });
 
   it('quits through the app rather than through AppKit', () => {

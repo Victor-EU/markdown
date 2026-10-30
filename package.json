@@ -20,7 +20,8 @@
     "pdf:fixtures": "node tools/pdf-fixtures/generate.mjs",
     "office:fixtures": "pnpm --filter @markdown/office-fixtures generate",
     "release:version": "node tools/release/set-version.mjs",
-    "release:manifest": "node tools/release/main.mjs"
+    "release:manifest": "node tools/release/main.mjs",
+    "release:notes": "node tools/release/notes.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",

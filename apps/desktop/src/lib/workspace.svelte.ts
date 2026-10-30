@@ -80,6 +80,7 @@ import type {
   SnapshotInfo,
   TabKind,
   TabMove,
+  UpdateState,
   WindowContent,
 } from '@markdown/ipc';
 import {
@@ -129,15 +130,7 @@ import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
 import { FolderSearch } from './search.svelte.ts';
 import { count, describeError, describeFormat, describeReadOnly } from './text.ts';
-import {
-  CHECK_INTERVAL_MS,
-  FIRST_CHECK_DELAY_MS,
-  IDLE,
-  reason,
-  reportCheck,
-  type Updater,
-  type UpdateState,
-} from './update.ts';
+import { failureReason, IDLE, reason, reportCheck, type Updater } from './update.ts';
 
 /** The three projections of one buffer (design 4.2). */
 export type ViewMode = EditorMode | 'read';
@@ -538,8 +531,15 @@ export class Workspace {
    * has the registry they are read from (ADR 0041). Null until it is.
    */
   editorMenu: (() => MenuEntry[]) | null = null;
-  /** Where the updater has got to (plan WP 1.12). */
+  /** Where the app's updater has got to (ADR 0044), as Rust last said. */
   update = $state<UpdateState>(IDLE);
+  /** A check this window asked for is out, and the reader was told so. */
+  private checkingForUpdates = false;
+  /**
+   * The Settings section that should be scrolled to when the page is next
+   * drawn, and then forgotten. Only About asks, for an update's notes.
+   */
+  settingsSection = $state<'about' | null>(null);
   /** The running app's own version, which only Tauri knows. */
   version = $state('');
   /** The find bar, and the query behind it (design 4.5). */
@@ -582,7 +582,6 @@ export class Workspace {
   private countTimer: ReturnType<typeof setTimeout> | null = null;
   private changeTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionTimer: ReturnType<typeof setTimeout> | null = null;
-  private updateTimer: ReturnType<typeof setInterval> | null = null;
   private sessionDelay = 0;
   /** What the last word count cost, which is what the next one waits on. */
   private countCost = 0;
@@ -4132,72 +4131,66 @@ export class Workspace {
   // --- the updater --------------------------------------------------------
 
   /**
-   * Start looking for updates: once shortly after launch, then every few
-   * hours for as long as the window is open (plan WP 1.12).
+   * Follow the app's updater (ADR 0044). The checking and the downloading
+   * are Rust's, once for the whole app, so a window only listens and asks
+   * where things stand when it opens: a window made while an update is
+   * waiting shows it like the others.
    *
-   * Both of those are automatic and both are silent unless they find
-   * something. Only `checkForUpdates(true)` — the command in the palette
-   * — reports back when there is nothing to report.
+   * The daily check is Rust's too, and silent unless it finds something.
+   * Only `checkForUpdates` — the menu item, the palette, the Settings
+   * button — reports back when there is nothing to report.
    */
   watchForUpdates(): void {
-    if (!this.options.updater || this.updateTimer !== null) return;
-    setTimeout(() => void this.checkForUpdates(), FIRST_CHECK_DELAY_MS);
-    this.updateTimer = setInterval(() => void this.checkForUpdates(), CHECK_INTERVAL_MS);
+    const updater = this.options.updater;
+    if (!updater) return;
+    updater.listen((state) => {
+      this.update = state;
+    });
+    void updater.state().then((state) => {
+      this.update = state;
+    });
   }
 
-  stopWatchingForUpdates(): void {
-    if (this.updateTimer === null) return;
-    clearInterval(this.updateTimer);
-    this.updateTimer = null;
+  /** Ask now, because the reader asked, and say what came of it. */
+  async checkForUpdates(): Promise<void> {
+    const updater = this.options.updater;
+    if (!updater) {
+      this.status = 'Updates are only checked in the installed app';
+      return;
+    }
+    this.status = 'Checking for updates…';
+    if (this.checkingForUpdates) return;
+    this.checkingForUpdates = true;
+    try {
+      const result = await updater.check();
+      if (result.status === 'ok') {
+        this.update = result.data;
+        this.status = reportCheck(result.data);
+      } else if (result.error.kind === 'not_installed') {
+        this.status = 'Updates are only checked in the installed app';
+      } else {
+        this.status = `Could not check for updates — ${failureReason(result.error)}`;
+      }
+    } catch (error) {
+      this.status = `Could not check for updates — ${reason(error)}`;
+    } finally {
+      this.checkingForUpdates = false;
+    }
   }
 
   /**
-   * Ask the endpoint whether there is a newer build.
-   *
-   * A check while one is already downloading is dropped: the answer
-   * cannot change what is happening, and letting it through would take
-   * the progress off the status bar.
+   * Download the update that was found and put it in place. The progress
+   * arrives as state, in every window; what comes back here is only
+   * whether it worked, and that is said in the window that asked.
    */
-  async checkForUpdates(manual = false): Promise<void> {
-    const updater = this.options.updater;
-    if (!updater) {
-      if (manual) this.status = 'Updates are only checked in the installed app';
-      return;
-    }
-    if (this.update.phase === 'checking' || this.update.phase === 'installing') {
-      // Somebody pressed the command while an automatic check was in
-      // flight. Saying what is already happening beats saying nothing.
-      const already = reportCheck(this.update);
-      if (manual && already !== '') this.status = already;
-      return;
-    }
-    this.update = { phase: 'checking' };
-    if (manual) this.status = reportCheck(this.update);
-    try {
-      const found = await updater.check();
-      this.update = found ? { phase: 'available', update: found } : { phase: 'none' };
-    } catch (error) {
-      this.update = { phase: 'failed', message: reason(error) };
-    }
-    if (manual) this.status = reportCheck(this.update);
-  }
-
-  /** Download the update that was found and put it in place. */
   async installUpdate(): Promise<void> {
     const updater = this.options.updater;
     if (!updater || this.update.phase !== 'available') return;
-    const update = this.update.update;
-    this.update = { phase: 'installing', update, fraction: null };
     try {
-      await updater.install((fraction) => {
-        // A late progress callback must not resurrect a state the
-        // failure below has already moved on from.
-        if (this.update.phase === 'installing')
-          this.update = { phase: 'installing', update, fraction };
-      });
-      this.update = { phase: 'ready', update };
+      const result = await updater.install();
+      if (result.status === 'error')
+        this.status = `Could not install the update — ${failureReason(result.error)}`;
     } catch (error) {
-      this.update = { phase: 'failed', message: reason(error) };
       this.status = `Could not install the update — ${reason(error)}`;
     }
   }
@@ -4205,21 +4198,29 @@ export class Workspace {
   /**
    * Restart into the new build.
    *
-   * The pending writes go out first. A relaunch is a close that the
-   * window never gets told about, so without this an autosave still on
-   * its 800 ms timer would be lost — which is exactly the sentence the
-   * reader would blame the update for.
+   * Rust restarts by quitting the way Quit does, which asks every window
+   * to write down what it holds before any of them goes (ADR 0044). This
+   * window writes its own first anyway: it costs nothing, and it is the
+   * one the reader was typing in a moment ago.
    */
   async restartForUpdate(): Promise<void> {
     const updater = this.options.updater;
     if (!updater || this.update.phase !== 'ready') return;
     await this.flushPending();
-    await updater.relaunch();
+    await updater.restart();
   }
 
-  /** What the status bar's update cell does when it is pressed. */
+  /**
+   * What the status bar's update cell does when it is pressed. An update
+   * on offer is shown before it is fetched, with its notes, in About;
+   * one that is ready restarts.
+   */
   async applyUpdate(): Promise<void> {
-    if (this.update.phase === 'available') return this.installUpdate();
+    if (this.update.phase === 'available') {
+      this.openSettings();
+      this.settingsSection = 'about';
+      return;
+    }
     if (this.update.phase === 'ready') return this.restartForUpdate();
   }
 

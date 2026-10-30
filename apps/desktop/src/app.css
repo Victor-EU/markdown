@@ -2236,6 +2236,12 @@ button.title:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* The updater's row keeps a button's height while the download stands
+   in for the button, so the notes under it do not move (ADR 0044). */
+.settings .about .field {
+  min-height: 26px;
+}
+
 .settings .stepper {
   display: flex;
   gap: 8px;
@@ -2320,6 +2326,54 @@ button.title:hover {
 .settings .thesis {
   max-width: 34em;
   margin: 0.8em 0 0;
+  font-size: 0.9em;
+}
+
+/*
+ * An update's release notes (ADR 0044), under the button that installs
+ * it. Rendered by Read mode's renderer and set smaller than the page, a
+ * rule down the left to say they are the release's words and not the
+ * app's. The notes' own headings are section names, not titles, so they
+ * are set at the text's size.
+ */
+.settings .notes {
+  max-width: 34em;
+  margin: 1em 0 0;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--page-border);
+  font-size: 0.9em;
+}
+
+.settings .notes > * {
+  margin: 0 0 0.6em;
+}
+
+.settings .notes :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1em 0 0.3em;
+  font-size: 1em;
+  font-weight: 650;
+}
+
+.settings .notes > :first-child {
+  margin-top: 0;
+}
+
+.settings .notes :is(ul, ol) {
+  padding-left: 1.2em;
+}
+
+.settings .notes li + li {
+  margin-top: 0.3em;
+}
+
+.settings .notes a {
+  color: var(--page-accent);
+  text-decoration-color: color-mix(in srgb, var(--page-accent) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+.settings .notes code {
+  font-family: var(--family-mono);
   font-size: 0.9em;
 }
 

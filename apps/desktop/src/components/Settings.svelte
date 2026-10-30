@@ -1,4 +1,5 @@
 <script lang="ts">
+import { parser, renderDocument, toDom } from '@markdown/markdown';
 import { type Paper, paletteFor, paperIsDark } from '@markdown/theme';
 import appIcon from '../../src-tauri/icons/128x128@2x.png';
 import { MEASURE_RANGE, resolveAppearance, SIZES, THEMES } from '../lib/appearance.ts';
@@ -85,6 +86,47 @@ const FAMILIES = [
 /** What the updater has to say here, where the version is (WP 1.12). */
 const update = $derived(describeUpdate(workspace.update));
 
+/**
+ * The one button beside it, which does whatever comes next (ADR 0044):
+ * check, install what the check found, restart into it. Nothing while
+ * it downloads, when the sentence beside it is the progress.
+ */
+const next = $derived.by(() => {
+  switch (workspace.update.phase) {
+    case 'available':
+      return { label: 'Install update', run: () => workspace.installUpdate() };
+    case 'downloading':
+      return null;
+    case 'ready':
+      return { label: 'Restart', run: () => workspace.restartForUpdate() };
+    default:
+      return { label: 'Check for updates', run: () => workspace.checkForUpdates() };
+  }
+});
+
+/** What the release says about itself, once there is a release in play. */
+const notes = $derived(workspace.update.phase === 'idle' ? '' : workspace.update.release.notes);
+
+/**
+ * The notes are markdown, so they are read the way the app reads
+ * markdown: the same parser and renderer as Read mode, whose output is
+ * already limited to what is safe to put in the page.
+ */
+function rendered(node: HTMLElement, source: string) {
+  const draw = (text: string) =>
+    node.replaceChildren(toDom(renderDocument(parser.parse(text), text)).fragment);
+  draw(source);
+  return { update: draw };
+}
+
+/** A link in the notes leaves for the browser, as one in Read mode does. */
+function followIn(event: MouseEvent) {
+  const link = (event.target as Element | null)?.closest('a');
+  const href = link?.getAttribute('href');
+  if (!href) return;
+  follow(event, href);
+}
+
 /** Where the person who built this can be found. */
 const LINKS = [
   { href: 'https://victorzhang.io/', label: 'victorzhang.io' },
@@ -117,6 +159,16 @@ const smallest = $derived(settings.size <= (SIZES[0] ?? 0));
 const largest = $derived(settings.size >= (SIZES.at(-1) ?? 0));
 
 let host: HTMLElement | undefined = $state();
+let about: HTMLElement | undefined = $state();
+
+// The status bar's update cell sends the reader here, to the notes and
+// the button that installs (ADR 0044). Asked once, then forgotten, so
+// the page does not jump back every time it is drawn.
+$effect(() => {
+  if (workspace.settingsSection !== 'about' || !about) return;
+  about.scrollIntoView({ block: 'start' });
+  workspace.settingsSection = null;
+});
 
 // This page is longer than the window and scrolls itself, so it needs the
 // keyboard the same way Read mode does.
@@ -283,7 +335,7 @@ $effect(() => {
       </div>
     </section>
 
-    <section class="about">
+    <section class="about" bind:this={about}>
       <h2>About</h2>
       <div class="identity">
         <img src={appIcon} alt="" width="44" height="44" />
@@ -295,11 +347,17 @@ $effect(() => {
         </div>
       </div>
       <div class="field">
-        <button type="button" class="choice" onclick={() => workspace.checkForUpdates(true)}>
-          Check for updates
-        </button>
+        {#if next}
+          <button type="button" class="choice" onclick={next.run}>{next.label}</button>
+        {/if}
         {#if update !== ''}<span class="value">{update}</span>{/if}
       </div>
+      {#if notes !== ''}
+        <!-- The clicks are the links', which the keyboard reaches and
+             presses as links; the block itself does nothing. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="notes" use:rendered={notes} onclick={followIn}></div>
+      {/if}
       <p class="maker">
         Built by Victor Zhang.
         {#each LINKS as link (link.href)}

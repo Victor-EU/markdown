@@ -9,8 +9,6 @@
     "core:window:allow-set-title",
     "dialog:default",
     "opener:allow-open-url",
-    "opener:allow-default-urls",
-    "updater:default",
-    "process:allow-restart"
+    "opener:allow-default-urls"
   ]
 }

@@ -276,7 +276,9 @@ jobs:
 
       # A draft. Publishing it is the moment the manifest becomes
       # reachable at `releases/latest/download/latest.json` and every
-      # running app starts being offered the update.
+      # running app starts being offered the update. The manifest goes up
+      # without notes; `release-notes.yml` puts the draft's in when it is
+      # published (ADR 0044).
       - name: Draft the release
         env:
           GH_TOKEN: ${{ github.token }}

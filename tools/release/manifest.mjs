@@ -110,6 +110,23 @@ export function buildManifest({ version, notes = '', date = new Date(), baseUrl,
 }
 
 /**
+ * What a release's notes say to a copy of the app being offered it (ADR
+ * 0044): the release's own body, up to the section on downloads.
+ *
+ * The notes are written by hand on the draft, after the bundles exist, so
+ * the manifest the build uploaded has none; they are put in when the
+ * release is published (`release-notes.yml`). Everything from a
+ * `## Downloads` heading on is about getting the app — the installers,
+ * the signing, which old copies will be offered this — and means nothing
+ * to one that is about to update itself.
+ */
+export function notesFrom(body) {
+  const lines = body.replace(/\r\n?/g, '\n').split('\n');
+  const downloads = lines.findIndex((line) => /^#{1,6}\s+Downloads\s*#*\s*$/i.test(line));
+  return (downloads === -1 ? lines : lines.slice(0, downloads)).join('\n').trim();
+}
+
+/**
  * The signed artifact in a directory: the one `.sig` file, and the file
  * whose name it is made of.
  *

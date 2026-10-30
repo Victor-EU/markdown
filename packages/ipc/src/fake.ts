@@ -35,6 +35,8 @@ import type {
   SnapshotAuthor,
   SnapshotInfo,
   TabMove,
+  UpdateFailure,
+  UpdateState,
   WindowContent,
 } from './index.ts';
 import { EDITABLE_BYTES, OPEN_BYTES } from './index.ts';
@@ -877,6 +879,17 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       return record('show_context_menu', [items], undefined);
     },
     clipboardText: () => record('clipboard_text', [], state.clipboardText),
+    // The updater is the app's, and a fake app is never an installed one
+    // (ADR 0044). The workspace's own tests drive it through `Updater`.
+    updateState: () => record('update_state', [], { phase: 'idle' } as UpdateState),
+    checkForUpdate: () =>
+      record('check_for_update', [], {
+        status: 'error',
+        error: { kind: 'not_installed' },
+      } as Result<UpdateState, UpdateFailure>),
+    installUpdate: () =>
+      record('install_update', [], { status: 'ok', data: null } as Result<null, UpdateFailure>),
+    restartToUpdate: () => record('restart_to_update', [], undefined),
   };
   return {
     commands,

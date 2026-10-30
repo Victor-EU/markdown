@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.svelte';
 // The real stylesheet: layout, and the scrolling the read pane depends on.
 import './app.css';
+import { FakeUpdater } from './lib/fake-updater.ts';
 import { createShell, type Shell } from './lib/shell.svelte.ts';
-import type { Updater } from './lib/update.ts';
 import type { WorkspaceOptions } from './lib/workspace.svelte.ts';
 
 let target: HTMLDivElement;
@@ -767,19 +767,30 @@ describe('the other paste, through the shell (ADR 0041)', () => {
 });
 
 describe('the updater in the chrome', () => {
-  const updater: Updater = {
-    check: async () => ({ version: '0.2.0' }),
-    install: async (onProgress) => onProgress(1),
-    relaunch: async () => {},
+  const NEXT = {
+    version: '0.2.0',
+    notes: '## Fixes\n\n- **A thing.** It works now. [More](https://example.com/more)',
   };
+  let updater: FakeUpdater;
+
+  beforeEach(() => {
+    updater = new FakeUpdater();
+    updater.found = NEXT;
+  });
 
   /** The status bar's update cell, when there is one. */
   function cell(): HTMLElement | null {
     return target.querySelector('.status .cell.update');
   }
 
-  it('is a cell in the status bar that installs, then restarts', async () => {
+  /** The About section's one update button. */
+  function aboutButton(): HTMLButtonElement | null {
+    return target.querySelector('.settings .about .field button');
+  }
+
+  it('is a cell in the status bar that goes to the notes, then restarts (ADR 0044)', async () => {
     start({}, { updater });
+    shell.workspace.watchForUpdates();
     expect(cell()).toBeNull();
 
     await shell.registry.get('help.checkUpdates').run();
@@ -789,13 +800,54 @@ describe('the updater in the chrome', () => {
     // Pressable, because there is something to do about it.
     expect(found?.tagName).toBe('BUTTON');
 
+    // Pressed, it shows what the update is before anything is fetched.
     (found as HTMLButtonElement).click();
     await settle();
+    expect(shell.workspace.activeTab?.kind).toBe('settings');
+    expect(updater.installs).toBe(0);
+    const notes = target.querySelector('.settings .about .notes');
+    expect(notes?.querySelector('h2')?.textContent).toBe('Fixes');
+    expect(notes?.querySelector('li strong')?.textContent).toBe('A thing.');
+    expect(aboutButton()?.textContent?.trim()).toBe('Install update');
+
+    aboutButton()?.click();
+    await settle();
+    expect(updater.installs).toBe(1);
     expect(cell()?.textContent?.trim()).toBe('Version 0.2.0 is ready — restart to finish');
+    expect(aboutButton()?.textContent?.trim()).toBe('Restart');
+
+    cell()?.click();
+    await settle();
+    expect(updater.restarts).toBe(1);
+  });
+
+  it('follows a link in the notes out to the browser', async () => {
+    const opened: string[] = [];
+    start({}, { updater, openExternal: (url) => opened.push(url) });
+    shell.workspace.watchForUpdates();
+    await shell.workspace.checkForUpdates();
+    await shell.workspace.applyUpdate();
+    await settle();
+    const link = target.querySelector('.settings .about .notes a') as HTMLAnchorElement;
+    link.click();
+    expect(opened).toEqual(['https://example.com/more']);
+  });
+
+  it('shows the download in the cell, with nothing to press', async () => {
+    start({}, { updater });
+    shell.workspace.watchForUpdates();
+    await shell.workspace.checkForUpdates();
+    updater.stand({ phase: 'downloading', release: NEXT, fraction: 0.42 });
+    shell.workspace.update = await updater.state();
+    await settle();
+    expect(cell()?.textContent?.trim()).toBe('Downloading 0.2.0 — 42%');
+    expect(cell()?.tagName).toBe('SPAN');
   });
 
   it('says nothing in the chrome when there is nothing to say', async () => {
-    start({}, { updater: { ...updater, check: async () => null } });
+    updater.found = null;
+    start({}, { updater });
+    shell.workspace.watchForUpdates();
     await shell.registry.get('help.checkUpdates').run();
     await settle();
     expect(cell()).toBeNull();
@@ -805,6 +857,7 @@ describe('the updater in the chrome', () => {
 
   it('offers install and restart only when they are possible', async () => {
     start({}, { updater });
+    shell.workspace.watchForUpdates();
     const install = shell.registry.get('help.installUpdate');
     const restart = shell.registry.get('help.restart');
     expect(shell.registry.isEnabled(install)).toBe(false);
@@ -819,14 +872,15 @@ describe('the updater in the chrome', () => {
     expect(shell.registry.isEnabled(restart)).toBe(true);
   });
 
-  it('puts the version on the Settings tab', async () => {
+  it('puts the version on the Settings tab, with nothing more until there is news', async () => {
     start({}, { updater });
     shell.workspace.version = '0.1.0';
     shell.workspace.openSettings();
     await settle();
     const about = target.querySelector('.page-settings');
     expect(about?.textContent).toContain('Markdown 0.1.0');
-    expect(about?.textContent).toContain('Check for updates');
+    expect(aboutButton()?.textContent?.trim()).toBe('Check for updates');
+    expect(target.querySelector('.settings .about .notes')).toBeNull();
   });
 
   it('says who built it, and its links leave for the browser', async () => {

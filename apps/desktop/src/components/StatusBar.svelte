@@ -40,7 +40,9 @@ const saveState = $derived.by(() => {
 /**
  * The updater speaks here or nowhere (plan WP 1.12). There are no
  * dialogs, and an update is never urgent enough to be one: it is a cell
- * in the status bar that says what it is and does it when pressed.
+ * in the status bar that says what it is. Pressed, an update on offer
+ * goes to its notes in Settings, and one that is ready restarts (ADR
+ * 0044).
  */
 const update = $derived(describeUpdate(workspace.update));
 const updates = $derived(updateAction(workspace.update));
